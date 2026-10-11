@@ -139,30 +139,41 @@ with st.sidebar:
                 st.success("Đã đồng bộ phiên đăng nhập!")
                 st.rerun()
     with c_lg2:
-        pop_cookie = st.popover("🍪 Phiên TikTok", width="stretch")
+        saved_cookie = bot.load_session_cookie_string()
+        cookie_label = "🟢 Đã nạp" if saved_cookie else "🍪 Phiên TikTok"
+        pop_cookie = st.popover(cookie_label, width="stretch")
         with pop_cookie:
-            st.markdown("**Đồng Bộ Phiên Tự Động**")
-            st.caption("Tự động trích xuất cookie từ Chrome hoặc đồng bộ lên Cloud.")
-            if st.button("⚡ Tự Động Lấy Cookie Ngay", width="stretch", type="primary"):
-                with st.spinner("Đang tự động đọc session từ Chrome..."):
-                    c_res = bot.auto_sync_local_cookies()
-                    if c_res:
-                        st.success("🎉 Đã tự động lấy và lưu Cookie thành công!")
-                        st.toast("Đã trích xuất Cookie tự động!", icon="⚡")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("Không tìm thấy phiên. Hãy bấm 'Đăng nhập Chrome' trước!")
+            st.markdown("**Quản Lý Phiên TikTok**")
+            if saved_cookie:
+                preview = (saved_cookie[:25] + "...") if len(saved_cookie) > 25 else saved_cookie
+                st.success(f"🟢 Đang kết nối: `{preview}`")
+                if st.button("🗑️ Xóa phiên đăng nhập", width="stretch"):
+                    bot.save_session_cookie_string("")
+                    st.rerun()
+            else:
+                st.info("⚪ Chưa có cookie phiên")
+
+            st.caption("Dán sessionid hoặc Cookie để giữ chuỗi trên Cloud:")
+            with st.form("cookie_form"):
+                cookie_in = st.text_area("Chuỗi Cookie / sessionid:", placeholder="sessionid=xxxx; ...", height=70)
+                sub_cookie = st.form_submit_button("💾 Lưu Phiên", type="primary", width="stretch")
+                if sub_cookie and cookie_in.strip():
+                    bot.save_session_cookie_string(cookie_in.strip())
+                    st.success("Đã lưu thành công!")
+                    time.sleep(0.5)
+                    st.rerun()
 
             st.divider()
-            with st.expander("📝 Hoặc dán thủ công nếu dùng điện thoại"):
-                with st.form("cookie_form"):
-                    cookie_in = st.text_area("Chuỗi Cookie / sessionid:", placeholder="sessionid=xxxx; ...", height=70)
-                    sub_cookie = st.form_submit_button("Lưu Cookie", width="stretch")
-                    if sub_cookie and cookie_in.strip():
-                        bot.save_session_cookie_string(cookie_in.strip())
-                        st.success("Đã lưu thành công!")
+            st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")
+            if st.button("⚡ Tự Động Lấy Cookie từ Chrome", width="stretch"):
+                with st.spinner("Đang trích xuất phiên từ Chrome..."):
+                    c_res = bot.auto_sync_local_cookies()
+                    if c_res:
+                        st.success("🎉 Đã lấy Cookie thành công!")
+                        time.sleep(0.5)
                         st.rerun()
+                    else:
+                        st.warning("Chưa tìm thấy phiên. Hãy bấm 'Đăng nhập' trước!")
 
 
 # ---------------------------------------------------------------------------
@@ -408,9 +419,11 @@ with tabs[1]:
                 with st.container(border=True):
                     r1, r2, r3, r4, r_check, r5, r6, r7 = st.columns([1.8, 2.0, 1.6, 1.8, 0.9, 0.9, 0.9, 0.4], vertical_alignment="center")
 
-                    # Cột 1: Username
+                    # Cột 1: Username & Chuỗi
                     with r1:
-                        st.markdown(f"**@{t['username']}**")
+                        sc = t.get("streak_count", 0)
+                        flame = f" 🔥`{sc}`" if sc else ""
+                        st.markdown(f"**@{t['username']}**{flame}")
 
                     # Cột 2: Tin nhắn
                     with r2:
@@ -424,9 +437,9 @@ with tabs[1]:
                     # Cột 4: Trạng thái chuẩn màu sắc
                     with r4:
                         status_text = t.get("status", "Ready")
-                        if "Thành công" in status_text or "Đã Rep" in status_text:
+                        if any(k in status_text for k in ["Thành công", "Đã Rep", "Đang giữ chuỗi", "Đang có chuỗi", "Đã kết nối", "hôm nay! ✅"]):
                             badge_cls = "badge-success"
-                        elif "Thất bại" in status_text or "Lỗi" in status_text:
+                        elif any(k in status_text for k in ["Thất bại", "Lỗi", "gián đoạn", "Không tìm thấy"]):
                             badge_cls = "badge-danger"
                         else:
                             badge_cls = "badge-warning"
@@ -440,12 +453,15 @@ with tabs[1]:
                                     check_res = bot.run_check_sync(t["username"])
                                     if check_res.get("checked"):
                                         t["status"] = check_res.get("status_desc")
+                                        if "streak_count" in check_res:
+                                            t["streak_count"] = check_res["streak_count"]
                                         if check_res.get("friend_replied"):
+                                            st.toast(f"@{t['username']}: Đã rep lại!", icon="🎉")
                                             st.success(f"@{t['username']}: {check_res.get('status_desc')}")
                                         else:
-                                            st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
+                                            st.info(f"@{t['username']}: {check_res.get('status_desc')}")
                                     else:
-                                        st.error(f"Lỗi kiểm tra: {check_res.get('status_desc')}")
+                                        st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
                                     bot.save_targets(targets)
                                     time.sleep(1)
                                     st.rerun()
