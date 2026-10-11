@@ -509,6 +509,69 @@ class TikTokStreakBot:
             "reason": f"Đã kích hoạt chuỗi Hú Hú ({sent_count} tin) tới @{username} 📢",
         }
 
+    def _extract_conv_details(self, conv: dict, my_name: str = "") -> dict:
+        """
+        TIKTOK CONVERSATION PARSER:
+        Bóc tách thông tin người dùng, số chuỗi streak, trạng thái gửi/rep từ payload TikTok JSON.
+        """
+        found_username = ""
+        user_obj = conv.get("user") or conv.get("user_info") or conv.get("userInfo") or conv.get("target_user")
+        if isinstance(user_obj, dict):
+            found_username = user_obj.get("unique_id") or user_obj.get("username") or user_obj.get("nickname") or ""
+
+        if not found_username:
+            participants = conv.get("participants") or []
+            if isinstance(participants, list):
+                for p in participants:
+                    if isinstance(p, dict):
+                        cand = p.get("unique_id") or p.get("username") or p.get("nickname") or ""
+                        if cand and cand.lower() not in [my_name.lower(), "tiktok", "system", "notification"]:
+                            found_username = cand
+                            break
+
+        if not found_username:
+            for k in ["unique_id", "screen_name", "username", "target_username", "nickname"]:
+                if k in conv and isinstance(conv[k], str) and conv[k].strip():
+                    found_username = conv[k].strip()
+                    break
+
+        found_username = found_username.strip().replace("@", "")
+
+        # Trích xuất thời điểm tin nhắn cuối
+        last_msg = conv.get("last_message") or conv.get("latest_message") or {}
+        create_time = int(last_msg.get("create_time", 0) or conv.get("updated_time", 0) or 0)
+        if create_time > 1000000000000:
+            create_time //= 1000
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        is_today = False
+        if create_time > 0:
+            last_date_str = datetime.fromtimestamp(create_time).strftime("%Y-%m-%d")
+            is_today = (last_date_str == today_str)
+
+        # Trích xuất số ngày giữ chuỗi (Streak)
+        streak_val = 0
+        streak_raw = conv.get("streak") or conv.get("streak_info") or conv.get("streak_badge") or {}
+        if isinstance(streak_raw, dict):
+            streak_val = int(streak_raw.get("count", 0) or streak_raw.get("streak_count", 0) or 0)
+        if streak_val == 0:
+            conv_dump = json.dumps(conv, ensure_ascii=False)
+            m = re.search(r'(?:streak|streak_count|count)[^0-9]*([0-9]+)', conv_dump)
+            if m:
+                streak_val = int(m.group(1))
+
+        # Trích xuất phản hồi (friend_replied)
+        unread = int(conv.get("unread_count", 0) or 0)
+        friend_replied = unread > 0
+
+        return {
+            "username": found_username,
+            "streak_count": streak_val,
+            "is_today": is_today,
+            "friend_replied": friend_replied,
+            "create_time": create_time,
+        }
+
     def _check_cloud_tiktok_chat_session(self, username: str, cookie_str: str) -> dict:
         """
         TIKTOK CLOUD SESSION DIRECT API ANALYZER (Từ sessionid / Cookie đã lưu):
@@ -522,6 +585,7 @@ class TikTokStreakBot:
         if not cookie_str or "sessionid" not in cookie_str:
             return {"success": False, "reason": "Chưa có sessionid"}
 
+        clean_user = username.strip().replace("@", "").lower()
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer": "https://www.tiktok.com/messages",
@@ -529,12 +593,12 @@ class TikTokStreakBot:
             "Accept": "application/json, text/plain, */*",
         }
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
-
         # 1. Thử truy vấn Web IM Conversation Gateway
         for ep in [
-            "https://www.tiktok.com/api/v1/web/im/conversation/list/",
-            "https://www.tiktok.com/api/im/conversation/list/",
+            "https://www.tiktok.com/api/v1/web/im/conversation/list/?cursor=0&count=50",
+            "https://www.tiktok.com/api/im/conversation/list/?cursor=0&count=50",
+            "https://www.tiktok.com/api/v1/web/im/user/friends/?count=50",
+            "https://www.tiktok.com/api/v1/im/user/friends/?count=50",
             "https://webcast.tiktok.com/webcast/im/fetch/",
         ]:
             try:
@@ -545,32 +609,20 @@ class TikTokStreakBot:
                         raw_data.get("data", {}).get("conversations")
                         or raw_data.get("conversations")
                         or raw_data.get("conversation_list")
+                        or raw_data.get("data", {}).get("user_list")
+                        or raw_data.get("user_list")
                         or []
                     )
                     for conv in conv_list:
-                        # Kiểm tra xem hội thoại này có phải với username không
                         conv_str = json.dumps(conv, ensure_ascii=False).lower()
-                        if username.lower() in conv_str:
-                            last_msg = conv.get("last_message", {}) or conv.get("latest_message", {})
-                            create_time = int(last_msg.get("create_time", 0) or conv.get("updated_time", 0) or 0)
-                            if create_time > 1000000000000:
-                                create_time //= 1000  # Milliseconds to seconds
-
-                            is_today = False
-                            if create_time > 0:
-                                msg_date = datetime.fromtimestamp(create_time).strftime("%Y-%m-%d")
-                                is_today = (msg_date == today_str)
-
-                            streak_val = 0
-                            streak_raw = conv.get("streak", {}) or conv.get("streak_info", {})
-                            if isinstance(streak_raw, dict):
-                                streak_val = int(streak_raw.get("count", 0) or streak_raw.get("streak_count", 0) or 0)
-
+                        if clean_user in conv_str:
+                            details = self._extract_conv_details(conv)
                             return {
                                 "success": True,
-                                "is_today": is_today,
-                                "friend_replied": conv.get("unread_count", 0) > 0,
-                                "streak_count": streak_val,
+                                "found": True,
+                                "is_today": details["is_today"],
+                                "friend_replied": details["friend_replied"],
+                                "streak_count": details["streak_count"],
                             }
             except Exception as e_im:
                 log.debug("IM endpoint error %s: %s", ep, e_im)
@@ -578,18 +630,187 @@ class TikTokStreakBot:
         # 2. Dự phòng: Kiểm tra qua Profile Metadata Endpoint
         try:
             r_user = requests.get(
-                f"https://www.tiktok.com/node/share/user/@{username}",
+                f"https://www.tiktok.com/node/share/user/@{clean_user}",
                 headers=headers,
                 timeout=5,
             )
             if r_user.status_code == 200:
                 u_data = r_user.json()
                 if "userInfo" in u_data:
-                    return {"success": True, "account_verified": True}
+                    return {"success": True, "found": False, "account_verified": True}
         except Exception:
             pass
 
         return {"success": False}
+
+    def auto_scan_friends_from_api(self) -> dict:
+        """
+        TỰ ĐỘNG QUÉT BẠN BÈ VÀ CHECK CHUỖI TỪ TIKTOK API:
+        1. Gọi trực tiếp API cuộc trò chuyện / tin nhắn / bạn bè của TikTok bằng Cookie / Session.
+        2. Tự động bóc tách toàn bộ danh sách bạn bè, số chuỗi streak hiện tại, trạng thái đã gửi/rep hôm nay.
+        3. Nếu API trực tiếp không trả về (do TikTok chặn IP Cloud/bot), tự động bật Selenium quét hộp thư chat.
+        4. Tự động hợp nhất vào danh sách mục tiêu (giữ nguyên cài đặt tin nhắn riêng) và đồng bộ Cloud.
+        """
+        cookie_str = self.load_session_cookie_string()
+        scanned_dict = {}
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        # CHIẾN LƯỢC 1: Quét trực tiếp qua TikTok IM Gateway API (Nhanh & Cloud-native)
+        if cookie_str and "sessionid" in cookie_str:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://www.tiktok.com/messages",
+                "Cookie": cookie_str,
+                "Accept": "application/json, text/plain, */*",
+            }
+            endpoints = [
+                "https://www.tiktok.com/api/v1/web/im/conversation/list/?cursor=0&count=50",
+                "https://www.tiktok.com/api/im/conversation/list/?cursor=0&count=50",
+                "https://www.tiktok.com/api/v1/web/im/user/friends/?count=50",
+                "https://www.tiktok.com/api/v1/im/user/friends/?count=50",
+                "https://www.tiktok.com/api/user/following/list/?count=50",
+                "https://webcast.tiktok.com/webcast/im/fetch/",
+            ]
+            for ep in endpoints:
+                try:
+                    res = requests.get(ep, headers=headers, timeout=8)
+                    if res.status_code == 200:
+                        raw_data = res.json()
+                        conv_list = (
+                            raw_data.get("data", {}).get("conversations")
+                            or raw_data.get("conversations")
+                            or raw_data.get("conversation_list")
+                            or raw_data.get("data", {}).get("user_list")
+                            or raw_data.get("user_list")
+                            or raw_data.get("data", {}).get("users")
+                            or []
+                        )
+                        for conv in conv_list:
+                            details = self._extract_conv_details(conv)
+                            uname = details.get("username", "").strip()
+                            if uname and uname.lower() not in ["tiktok", "system", "notification"]:
+                                scanned_dict[uname.lower()] = details
+                except Exception as e_scan:
+                    log.debug("Lỗi quét endpoint %s: %s", ep, e_scan)
+
+        # CHIẾN LƯỢC 2: Fallback qua Selenium nếu API trực tiếp chưa có dữ liệu và có Chrome
+        if not scanned_dict:
+            driver = None
+            try:
+                driver = self._get_driver(headless=self.headless)
+            except Exception:
+                driver = None
+
+            if driver is not None:
+                try:
+                    driver.get("https://www.tiktok.com/messages")
+                    time.sleep(4)
+                    conv_items = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "[data-e2e='conversation-item'], div[class*='ConversationItem'], div[class*='ChatList'] li, div[class*='ChatList'] div[role='button']"
+                    )
+                    for item in conv_items:
+                        try:
+                            txt = item.text.strip()
+                            if not txt:
+                                continue
+                            lines = [ln.strip() for ln in txt.split("\n") if ln.strip()]
+                            if not lines:
+                                continue
+                            cand_name = lines[0].replace("@", "")
+                            if any(k in cand_name.lower() for k in ["tiktok", "thông báo", "tin nhắn hệ thống"]):
+                                continue
+
+                            has_st, st_cnt = self._extract_streak_from_text_or_elem(item)
+                            scanned_dict[cand_name.lower()] = {
+                                "username": cand_name,
+                                "streak_count": st_cnt,
+                                "is_today": False,
+                                "friend_replied": bool(item.find_elements(By.CSS_SELECTOR, "[class*='unread'], [class*='badge'], [class*='Dot']")),
+                                "create_time": 0,
+                            }
+                        except Exception:
+                            continue
+                except Exception as e_sel:
+                    log.warning("Selenium quét danh sách chat gặp sự cố: %s", e_sel)
+                finally:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+
+        if not scanned_dict:
+            if not cookie_str:
+                return {
+                    "success": False,
+                    "total_scanned": 0,
+                    "reason": "Chưa có Cookie / Session ID của TikTok. Vui lòng dán cookie hoặc bấm 'Tự động lấy cookie' trước.",
+                }
+            return {
+                "success": False,
+                "total_scanned": 0,
+                "reason": "Không tìm thấy cuộc trò chuyện nào trên TikTok API. Vui lòng kiểm tra lại phiên đăng nhập.",
+            }
+
+        # CHIẾN LƯỢC 3: Hợp nhất (Merge) thông minh vào danh sách mục tiêu
+        targets = self.load_targets()
+        target_map = {t["username"].lower(): t for t in targets if t.get("username")}
+        new_added = 0
+        updated_count = 0
+
+        for u_lower, item in scanned_dict.items():
+            uname = item["username"]
+            sc = item.get("streak_count", 0)
+            is_today = item.get("is_today", False)
+            friend_replied = item.get("friend_replied", False)
+
+            if is_today:
+                desc = f"Đang giữ chuỗi {sc} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
+                if friend_replied:
+                    desc += " • Đối phương đã rep! 🎉"
+                else:
+                    desc += " • Đang chờ đối phương rep 💬"
+            elif sc > 0:
+                desc = f"Chuỗi {sc} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️"
+                if friend_replied:
+                    desc += " • Đối phương đã rep! ✅"
+            else:
+                desc = "Đã quét từ TikTok API ⚡ • Sẵn sàng giữ chuỗi"
+
+            if u_lower in target_map:
+                t = target_map[u_lower]
+                if sc > 0:
+                    t["streak_count"] = sc
+                t["friend_replied"] = friend_replied or t.get("friend_replied", False)
+                t["last_checked"] = now_str
+                t["status"] = desc
+                if is_today and not (t.get("last_sent") or "").startswith(today_str):
+                    t["last_sent"] = now_str
+                updated_count += 1
+            else:
+                new_entry = {
+                    "username": uname,
+                    "custom_msg": None,
+                    "spam_messages": None,
+                    "streak_count": sc,
+                    "friend_replied": friend_replied,
+                    "last_sent": now_str if is_today else "Chưa gửi",
+                    "last_checked": now_str,
+                    "status": desc,
+                }
+                targets.append(new_entry)
+                new_added += 1
+
+        self.save_targets(targets)
+        log.info("Đã quét tự động từ TikTok API: %d bạn bè (Thêm mới: %d, Cập nhật: %d)", len(scanned_dict), new_added, updated_count)
+        return {
+            "success": True,
+            "total_scanned": len(scanned_dict),
+            "new_added": new_added,
+            "updated": updated_count,
+            "friends": list(scanned_dict.values()),
+        }
 
     def mark_manual_send(self, username: str) -> dict:
         """
@@ -620,20 +841,59 @@ class TikTokStreakBot:
 
     def check_streak_status(self, username: str) -> dict:
         """
-        KIỂM TRA TỰ ĐỘNG CHUỖI VÀ TRẠNG THÁI TƯƠNG TÁC (100% Không Lỗi):
-        1. Thử kiểm tra qua Selenium nếu môi trường có sẵn Chrome
-        2. Nếu Chrome không chạy được (Streamlit Cloud), kích hoạt ngay Engine xác thực API và Trạng thái phiên
-        3. Tự động tính toán ngày giữ chuỗi, kiểm tra đối phương đã gửi lại chưa, cập nhật vào danh sách
+        KIỂM TRA TỰ ĐỘNG CHUỖI VÀ TRẠNG THÁI TƯƠNG TÁC TỪ TIKTOK API (100% Không Lỗi):
+        1. Ưu tiên cao nhất: Quét trực tiếp TikTok IM API qua Cloud Session / Cookie.
+           - Lấy chính xác số ngày chuỗi (streak_count), thời điểm gửi tin hôm nay, và đối phương đã rep chưa.
+        2. Nếu API không khả dụng hoặc chưa có Cookie, tự động kiểm tra qua Selenium (nếu có Chrome).
+        3. Dự phòng thông minh: Tính toán hạn chót 23:59 và đếm ngược thời gian giữ chuỗi.
         """
         now = datetime.now()
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        today_str = now.strftime("%Y-%m-%d")
 
         targets = self.load_targets()
-        target = next((t for t in targets if t.get("username") == username), None)
+        target = next((t for t in targets if t.get("username", "").lower() == username.lower()), None)
         last_sent = target.get("last_sent", "") if target else ""
         current_streak = int((target.get("streak_count") if target else 0) or 0)
 
-        # 1. Thử Selenium Browser Check nếu có thể khởi động
+        # 1. KIỂM TRA TRỰC TIẾP QUA TIKTOK IM API (Nhanh & chuẩn xác nhất)
+        cookie_str = self.load_session_cookie_string()
+        if cookie_str and "sessionid" in cookie_str:
+            api_res = self._check_cloud_tiktok_chat_session(username, cookie_str)
+            if api_res.get("success") and (api_res.get("found") or api_res.get("streak_count", 0) > 0 or api_res.get("is_today")):
+                streak_count = max(int(api_res.get("streak_count", 0) or 0), current_streak)
+                is_today = bool(api_res.get("is_today"))
+                friend_replied = bool(api_res.get("friend_replied"))
+
+                if is_today:
+                    if not last_sent.startswith(today_str):
+                        self._update_target_on_send(username, now_str)
+                    desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
+                    if friend_replied:
+                        desc += " • Đối phương đã rep! 🎉"
+                    else:
+                        desc += " • Đang chờ đối phương rep 💬"
+                else:
+                    desc = f"Chuỗi {streak_count} ngày 🔥" if streak_count > 0 else "Đã kết nối TikTok API"
+                    if friend_replied:
+                        desc += " • Đối phương đã rep! ✅ (Bạn chưa gửi chuỗi)"
+                    else:
+                        end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
+                        rem_sec = max(0, int((end_of_day - now).total_seconds()))
+                        desc += f" • Cần gửi chuỗi trước 23:59! ⚠️ (⏳ Còn {rem_sec // 3600}h {(rem_sec % 3600) // 60}p)"
+
+                desc += " [TikTok API ⚡]"
+                self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
+                return {
+                    "checked": True,
+                    "has_streak": streak_count > 0,
+                    "streak_count": streak_count,
+                    "friend_replied": friend_replied,
+                    "status_desc": desc,
+                    "source": "tiktok_api",
+                }
+
+        # 2. Thử Selenium Browser Check nếu có sẵn Chrome
         driver = None
         try:
             driver = self._get_driver(headless=self.headless)
@@ -665,10 +925,6 @@ class TikTokStreakBot:
                             candidate_elements.extend(driver.find_elements(By.CSS_SELECTOR, sel))
                         except Exception:
                             pass
-                    try:
-                        candidate_elements.extend(driver.find_elements(By.XPATH, "//*[contains(text(), '🔥') or contains(@aria-label, '🔥') or contains(@title, '🔥')]"))
-                    except Exception:
-                        pass
 
                     for el in candidate_elements:
                         found, val = self._extract_streak_from_text_or_elem(el)
@@ -704,7 +960,6 @@ class TikTokStreakBot:
                     except Exception as e_msg:
                         log.debug("Lỗi phân tích bong bóng chat: %s", e_msg)
 
-                    today_str = now.strftime("%Y-%m-%d")
                     already_sent_today = i_sent_recently or (last_sent and last_sent.startswith(today_str))
 
                     if already_sent_today:
@@ -739,12 +994,11 @@ class TikTokStreakBot:
                 except Exception:
                     pass
 
-        # 2. CLOUD SESSION VÀ DIRECT VERIFICATION ENGINE
+        # 3. CLOUD SESSION VÀ DIRECT VERIFICATION ENGINE (Dự phòng an toàn)
         has_streak = False
         streak_count = max(current_streak, 0)
         friend_replied = target.get("friend_replied", False) if target else False
         delta_days = 999
-        status_desc = ""
 
         if last_sent and last_sent != "Chưa gửi":
             try:
@@ -775,14 +1029,10 @@ class TikTokStreakBot:
                 "status_desc": status_desc,
             }
 
-        cookie_str = self.load_session_cookie_string()
         cookie_active = bool(cookie_str and "sessionid" in cookie_str)
-
         end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
         rem_sec = max(0, int((end_of_day - now).total_seconds()))
-        rem_h = rem_sec // 3600
-        rem_m = (rem_sec % 3600) // 60
-        countdown_note = f"(⏳ Còn {rem_h}h {rem_m}p trước 23:59)"
+        countdown_note = f"(⏳ Còn {rem_sec // 3600}h {(rem_sec % 3600) // 60}p trước 23:59)"
 
         if delta_days == 0:
             has_streak = True
@@ -827,3 +1077,6 @@ class TikTokStreakBot:
 
     def run_check_sync(self, username: str) -> dict:
         return self.check_streak_status(username)
+
+    def run_scan_friends_sync(self) -> dict:
+        return self.auto_scan_friends_from_api()

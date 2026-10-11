@@ -72,5 +72,72 @@ class TestStreakBot(unittest.TestCase):
             self.assertFalse(res["replied"])
 
 
+    def test_extract_conv_details(self):
+        fake_conv = {
+            "user": {"unique_id": "bestie_user"},
+            "streak": {"count": 12},
+            "unread_count": 1,
+            "last_message": {"create_time": 1700000000},
+        }
+        details = self.bot._extract_conv_details(fake_conv)
+        self.assertEqual(details["username"], "bestie_user")
+        self.assertEqual(details["streak_count"], 12)
+        self.assertTrue(details["friend_replied"])
+
+    def test_auto_scan_friends_no_cookie(self):
+        with patch.object(self.bot, "load_session_cookie_string", return_value=""):
+            with patch.object(self.bot, "_get_driver", return_value=None):
+                res = self.bot.auto_scan_friends_from_api()
+                self.assertFalse(res["success"])
+                self.assertIn("Chưa có Cookie", res["reason"])
+
+    def test_auto_scan_friends_from_api_success(self):
+        fake_json = {
+            "data": {
+                "conversations": [
+                    {
+                        "user": {"unique_id": "tiktok_friend1"},
+                        "streak": {"count": 5},
+                        "unread_count": 0,
+                    },
+                    {
+                        "user": {"unique_id": "tiktok_friend2"},
+                        "streak": {"count": 8},
+                        "unread_count": 1,
+                    }
+                ]
+            }
+        }
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = fake_json
+
+        with patch.object(self.bot, "load_session_cookie_string", return_value="sessionid=fake_token_abc;"):
+            with patch("requests.get", return_value=mock_resp):
+                res = self.bot.auto_scan_friends_from_api()
+                self.assertTrue(res["success"])
+                self.assertEqual(res["total_scanned"], 2)
+                targets = self.bot.load_targets()
+                self.assertEqual(len(targets), 2)
+                usernames = [t["username"] for t in targets]
+                self.assertIn("tiktok_friend1", usernames)
+                self.assertIn("tiktok_friend2", usernames)
+
+    def test_check_streak_status_with_api_direct(self):
+        with patch.object(self.bot, "load_session_cookie_string", return_value="sessionid=fake_token;"):
+            with patch.object(self.bot, "_check_cloud_tiktok_chat_session", return_value={
+                "success": True,
+                "found": True,
+                "streak_count": 15,
+                "is_today": True,
+                "friend_replied": True,
+            }):
+                res = self.bot.check_streak_status("friend_user")
+                self.assertTrue(res["checked"])
+                self.assertEqual(res["streak_count"], 15)
+                self.assertTrue(res["friend_replied"])
+                self.assertIn("TikTok API ⚡", res["status_desc"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -369,13 +369,15 @@ with tabs[1]:
         st.write("")
 
         # Hàng tiêu đề danh sách + Các nút hành động căn giữa dọc
-        col_act1, col_act2, col_act_check_all, col_act_backup, col_act3 = st.columns([2.0, 1.2, 1.2, 0.9, 0.7], vertical_alignment="center")
+        col_act1, col_act_scan, col_act2, col_act_check_all, col_act_backup, col_act3 = st.columns([1.8, 1.4, 1.1, 1.1, 0.8, 0.6], vertical_alignment="center")
         with col_act1:
             st.markdown("<h3 style='margin:0; padding:0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
+        with col_act_scan:
+            btn_scan_all = st.button("🔄 Quét Bạn Bè (API)", type="secondary", width="stretch", help="Tự động quét danh sách bạn bè và check chuỗi trực tiếp từ TikTok API")
         with col_act2:
             btn_run_all = st.button("⚡ Gửi tất cả", type="primary", width="stretch")
         with col_act_check_all:
-            btn_check_all = st.button("🔍 Check tất cả", width="stretch", help="Quét và cập nhật trạng thái toàn bộ danh sách")
+            btn_check_all = st.button("🔍 Check tất cả", width="stretch", help="Quét và cập nhật trạng thái toàn bộ danh sách từ TikTok API")
         with col_act_backup:
             pop_bak = st.popover("💾 Sao lưu", width="stretch")
             with pop_bak:
@@ -416,8 +418,44 @@ with tabs[1]:
                     st.toast("Đã xoá toàn bộ danh sách!", icon="🗑️")
                     st.rerun()
 
+        if btn_scan_all:
+            with st.spinner("🔄 Đang kết nối TikTok API để quét danh sách bạn bè & check chuỗi..."):
+                scan_res = bot.run_scan_friends_sync()
+                if scan_res.get("success"):
+                    tot = scan_res.get("total_scanned", 0)
+                    new_n = scan_res.get("new_added", 0)
+                    upd_n = scan_res.get("updated", 0)
+                    st.toast(f"Đã quét thành công {tot} bạn bè từ TikTok API!", icon="🔥")
+                    st.success(f"🎉 **Đã quét thành công từ TikTok API!** Phát hiện **{tot}** bạn bè (Thêm mới: **{new_n}**, Cập nhật chuỗi: **{upd_n}**).")
+                    time.sleep(1.2)
+                    st.rerun()
+                else:
+                    reason = scan_res.get("reason", "Vui lòng kiểm tra Cookie / Session ID.")
+                    st.warning(f"⚠️ Không thể quét từ TikTok API: {reason}")
+
         # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
-        with st.expander("➕ Thêm bạn bè", expanded=(len(targets) == 0)):
+        with st.expander("➕ Thêm bạn bè & Quét tự động từ TikTok API", expanded=(len(targets) == 0)):
+            btn_auto_scan_friends = st.button(
+                "⚡ Tự Động Quét & Nhận Diện Chuỗi Toàn Bộ Bạn Bè Từ TikTok API (1 Click)",
+                type="primary",
+                use_container_width=True,
+                help="Tự động trích xuất toàn bộ bạn bè và chuỗi streak từ TikTok API vào danh sách",
+            )
+            if btn_auto_scan_friends:
+                with st.spinner("🔄 Đang kết nối TikTok API để quét danh sách bạn bè & check chuỗi..."):
+                    scan_res = bot.run_scan_friends_sync()
+                    if scan_res.get("success"):
+                        tot = scan_res.get("total_scanned", 0)
+                        new_n = scan_res.get("new_added", 0)
+                        upd_n = scan_res.get("updated", 0)
+                        st.toast(f"Đã cập nhật {tot} bạn bè từ TikTok API!", icon="🔥")
+                        st.success(f"🎉 **Đã quét thành công từ TikTok API!** Phát hiện **{tot}** bạn bè (Thêm mới: **{new_n}**, Cập nhật chuỗi: **{upd_n}**).")
+                        time.sleep(1.2)
+                        st.rerun()
+                    else:
+                        reason = scan_res.get("reason", "Vui lòng kiểm tra Cookie / Session ID.")
+                        st.warning(f"⚠️ Không thể quét từ TikTok API: {reason}")
+            st.divider()
             with st.form("add_friend_form", clear_on_submit=True):
                 fc1, fc2, fc3 = st.columns([2.5, 3.5, 1.5], vertical_alignment="bottom")
                 with fc1:
@@ -487,7 +525,7 @@ with tabs[1]:
 
                 for idx, t in enumerate(targets):
                     u = t["username"]
-                    status_holder.info(f"🔍 Đang kiểm tra cuộc trò chuyện với **@{u}** ({idx+1}/{len(targets)})...")
+                    status_holder.info(f"🔍 Đang check chuỗi từ TikTok API với **@{u}** ({idx+1}/{len(targets)})...")
                     try:
                         res = bot.run_check_sync(u)
                         if res.get("checked"):
@@ -501,7 +539,7 @@ with tabs[1]:
                     progress.progress((idx + 1) / len(targets))
 
                 bot.save_targets(targets)
-                status_holder.success("🎉 Đã kiểm tra xong toàn bộ bạn bè!")
+                status_holder.success("🎉 Đã kiểm tra xong toàn bộ bạn bè từ TikTok API!")
                 time.sleep(1)
                 st.rerun()
 
@@ -585,7 +623,7 @@ with tabs[1]:
                     # Nút Soi / Check Chuỗi Tự Động
                     with r_check:
                         if st.button("🔍 Check", key=f"check_{idx}", help="Kiểm tra đối phương đã gửi chuỗi lại chưa", width="stretch"):
-                            with st.spinner(f"Đang kiểm tra cuộc trò chuyện với @{t['username']}..."):
+                            with st.spinner(f"Đang check chuỗi từ TikTok API với @{t['username']}..."):
                                 try:
                                     check_res = bot.run_check_sync(t["username"])
                                     if check_res.get("checked"):
