@@ -28,6 +28,7 @@ from src.streak.bot import TikTokStreakBot
 from src.streak.config import DEFAULT_MESSAGES, HU_HU_SPAM_MESSAGES, SESSION_DIR, STREAK_CONFIG_FILE
 from src.streak.scheduler import global_scheduler
 from src.ui.styles import inject_css
+from src.ui.auth import render_login_screen, is_authenticated, is_admin, get_current_user, logout
 from src.utils.validators import extract_video_id, is_valid_video_url
 
 # 1. Cấu hình trang với layout wide
@@ -40,6 +41,16 @@ st.set_page_config(
 
 # 2. Nhúng CSS tập trung duy nhất
 inject_css()
+
+# 3. Kiểm tra xác thực trước khi cho phép vào hệ thống
+if not is_authenticated():
+    render_login_screen()
+    st.stop()
+
+# Lấy thông tin user hiện tại
+current_user = get_current_user() or {}
+user_role = current_user.get("role", "guest")
+user_name = current_user.get("name", "Người dùng")
 
 bot = TikTokStreakBot(headless=False)
 profile_exists = (SESSION_DIR / "chrome_tiktok_profile").exists()
@@ -57,6 +68,15 @@ with st.sidebar:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # Hiển thị tài khoản đang đăng nhập & Nút Đăng xuất
+    with st.container(border=True):
+        st.markdown(f"👤 **{user_name}**")
+        role_badge = "badge-success" if is_admin() else "badge-warning"
+        st.markdown(f'<span class="status-badge {role_badge}">Vai trò: {user_role.upper()}</span>', unsafe_allow_html=True)
+        st.write("")
+        if st.button("🚪 Đăng xuất", width="stretch", type="secondary"):
+            logout()
 
     st.write("")
 
@@ -183,220 +203,226 @@ with tabs[0]:
 # TAB 1: QUẢN LÝ GIỮ CHUỖI STREAK
 # ---------------------------------------------------------------------------
 with tabs[1]:
-    targets = bot.load_targets()
+    if not is_admin():
+        st.warning("🔒 **Khu vực giới hạn quyền hạn!**")
+        st.info("Tính năng **Giữ Chuỗi & Hú Hú Cá Nhân** chỉ dành riêng cho tài khoản **Admin** để đảm bảo bảo mật tài khoản Chrome cá nhân. Bạn đang đăng nhập với tư cách **Khách (Guest)** nên chỉ có thể dùng các tính năng tra cứu API và Phân tích ở Tab khác.")
+    else:
+        targets = bot.load_targets()
 
-    # Hàng 4 Metric: đồng đều chiều cao với st.container(border=True)
-    k1, k2, k3, k4 = st.columns(4)
-    total_friends = len(targets)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    sent_today = sum(1 for t in targets if t.get("last_sent", "").startswith(today_str))
-    pending_today = total_friends - sent_today
 
-    with k1:
-        with st.container(border=True):
-            st.metric("Tổng Bạn Bè Giữ Chuỗi", f"{total_friends} người", f"{total_friends} bạn bè")
-    with k2:
-        with st.container(border=True):
-            delta_k2 = f"Đạt {sent_today}/{total_friends}" if total_friends else "Chưa có bạn"
-            st.metric("Mình Đã Gửi Hôm Nay", f"{sent_today} người", delta_k2)
-    with k3:
-        with st.container(border=True):
-            if pending_today > 0:
-                delta_k3 = f"Còn {pending_today} người"
-                delta_color = "inverse"
-            else:
-                delta_k3 = "Không còn ai chờ"
-                delta_color = "normal"
-            st.metric("Chưa Gửi Hôm Nay", f"{pending_today} người", delta_k3, delta_color=delta_color)
-    with k4:
-        with st.container(border=True):
-            val_k4 = "Kích hoạt" if global_scheduler.is_running else "Đang tắt"
-            delta_k4 = "Canh gác 23:30" if global_scheduler.is_running else "Chưa bật"
-            st.metric("Vệ Tinh 23h30 Đêm", val_k4, delta_k4)
+        # Hàng 4 Metric: đồng đều chiều cao với st.container(border=True)
+        k1, k2, k3, k4 = st.columns(4)
+        total_friends = len(targets)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        sent_today = sum(1 for t in targets if t.get("last_sent", "").startswith(today_str))
+        pending_today = total_friends - sent_today
 
-    st.write("")
-
-    # Hàng tiêu đề danh sách + Hai nút hành động căn giữa dọc
-    col_act1, col_act2, col_act3 = st.columns([3, 1.6, 1.2], vertical_alignment="center")
-    with col_act1:
-        st.markdown("<h3 style='margin:0; padding:0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
-    with col_act2:
-        btn_run_all = st.button("⚡ Gửi giữ chuỗi tất cả", type="primary", width="stretch")
-    with col_act3:
-        # Nút phụ Xoá hết có popover xác nhận an toàn
-        pop_clear = st.popover("🗑️ Xoá hết", width="stretch")
-        with pop_clear:
-            st.markdown("**Xác nhận xoá toàn bộ?**")
-            st.caption("Thao tác này sẽ xoá sạch danh sách bạn bè hiện tại.")
-            btn_clear_confirm = st.button("Đồng ý xoá sạch", type="primary", width="stretch")
-            if btn_clear_confirm:
-                bot.save_targets([])
-                st.toast("Đã xoá toàn bộ danh sách!", icon="🗑️")
-                st.rerun()
-
-    # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
-    with st.expander("➕ Thêm bạn bè", expanded=(len(targets) == 0)):
-        with st.form("add_friend_form", clear_on_submit=True):
-            fc1, fc2, fc3 = st.columns([2.5, 3.5, 1.5], vertical_alignment="bottom")
-            with fc1:
-                username_in = st.text_input("Username TikTok (không cần @):", placeholder="ví dụ: ban_than_123")
-            with fc2:
-                custom_msg_in = st.text_input("Tin nhắn hàng ngày (mặc định gửi icon 🔥):", placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥")
-            with fc3:
-                submit_add = st.form_submit_button("Thêm ngay", type="primary", width="stretch")
-
-            # Mẫu hú hú mở rộng tuỳ chọn nếu muốn tuỳ biến sâu
-            with st.expander("⚙️ Cài đặt mẫu câu spam hú hú riêng (Mỗi câu 1 dòng - không bắt buộc)"):
-                st.caption("💡 *Nếu để trống, bot sẽ tự động lấy kho 16 câu hú hú thông minh mặc định (từ nhắc nhẹ đến đe dọa troll hài hước).*")
-                sample_placeholder = (
-                    "HÚ HÚ gửi chuỗi đi má ơi 🔥🔥🔥\n"
-                    "Sắp qua 12h đêm rồi má ơi mau gửi chuỗi đi 🔥😱\n"
-                    "Đứt chuỗi là tao qua nhà kiếm chuyện đó nha 🚨👊\n"
-                    "Dậy gửi chuỗi rồi ngủ tiếp người anh em ơi 😴🔥\n"
-                    "Chỉ cần gửi 1 dấu chấm thôi cũng được cứu chuỗi đi! 🆘🔥"
-                )
-                custom_spams_in = st.text_area(
-                    "Mẫu hú hú riêng:",
-                    placeholder=sample_placeholder,
-                    height=95,
-                    label_visibility="collapsed",
-                )
-
-            if submit_add:
-                clean_name = username_in.strip().replace("@", "")
-                if clean_name:
-                    if any(t["username"].lower() == clean_name.lower() for t in targets):
-                        st.warning(f"@{clean_name} đã có trong danh sách!")
-                    else:
-                        spam_lines = [s.strip() for s in custom_spams_in.split("\n") if s.strip()] if custom_spams_in else None
-                        targets.append({
-                            "username": clean_name,
-                            "custom_msg": custom_msg_in.strip() if custom_msg_in.strip() else None,
-                            "spam_messages": spam_lines,
-                            "last_sent": "Chưa gửi",
-                            "status": "Ready",
-                        })
-                        bot.save_targets(targets)
-                        st.success(f"Đã thêm @{clean_name} thành công!")
-                        st.rerun()
-
-    if btn_run_all:
-        if not targets:
-            st.warning("Chưa có bạn bè nào trong danh sách!")
-        else:
-            progress_holder = st.empty()
-            status_holder = st.empty()
-            progress = progress_holder.progress(0)
-
-            for idx, t in enumerate(targets):
-                u = t["username"]
-                m = t.get("custom_msg")
-                status_holder.info(f"⏳ Đang gửi tin nhắn giữ chuỗi tới **@{u}** ({idx+1}/{len(targets)})...")
-                try:
-                    success = bot.run_send_sync(u, m)
-                    if success:
-                        t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        t["status"] = "Thành công 🔥"
-                        st.toast(f"Đã gửi chuỗi tới @{u}", icon="🔥")
-                    else:
-                        t["status"] = "Thất bại ❌"
-                except Exception as ex:
-                    t["status"] = f"Lỗi: {ex}"
-
-                progress.progress((idx + 1) / len(targets))
-                time.sleep(1)
-
-            bot.save_targets(targets)
-            status_holder.success("🎉 Đã hoàn tất đợt gửi chuỗi!")
-            time.sleep(1)
-            st.rerun()
-
-    # Hiển thị danh sách bạn bè chuẩn dạng bảng
-    st.write("")
-    if targets:
-        # Hàng tiêu đề cột
-        th1, th2, th3, th4, th5 = st.columns([2.0, 2.2, 1.8, 1.5, 2.5], vertical_alignment="center")
-        with th1:
-            st.markdown("<div class='table-col-header'>Tài Khoản</div>", unsafe_allow_html=True)
-        with th2:
-            st.markdown("<div class='table-col-header'>Tin Nhắn</div>", unsafe_allow_html=True)
-        with th3:
-            st.markdown("<div class='table-col-header'>Lần Gửi Cuối</div>", unsafe_allow_html=True)
-        with th4:
-            st.markdown("<div class='table-col-header'>Trạng Thái</div>", unsafe_allow_html=True)
-        with th5:
-            st.markdown("<div class='table-col-header' style='text-align:right; padding-right:12px;'>Hành Động</div>", unsafe_allow_html=True)
-
-        for idx, t in enumerate(targets):
+        with k1:
             with st.container(border=True):
-                r1, r2, r3, r4, r5, r6, r7 = st.columns([2.0, 2.2, 1.8, 1.5, 1.1, 1.1, 0.4], vertical_alignment="center")
+                st.metric("Tổng Bạn Bè Giữ Chuỗi", f"{total_friends} người", f"{total_friends} bạn bè")
+        with k2:
+            with st.container(border=True):
+                delta_k2 = f"Đạt {sent_today}/{total_friends}" if total_friends else "Chưa có bạn"
+                st.metric("Mình Đã Gửi Hôm Nay", f"{sent_today} người", delta_k2)
+        with k3:
+            with st.container(border=True):
+                if pending_today > 0:
+                    delta_k3 = f"Còn {pending_today} người"
+                    delta_color = "inverse"
+                else:
+                    delta_k3 = "Không còn ai chờ"
+                    delta_color = "normal"
+                st.metric("Chưa Gửi Hôm Nay", f"{pending_today} người", delta_k3, delta_color=delta_color)
+        with k4:
+            with st.container(border=True):
+                val_k4 = "Kích hoạt" if global_scheduler.is_running else "Đang tắt"
+                delta_k4 = "Canh gác 23:30" if global_scheduler.is_running else "Chưa bật"
+                st.metric("Vệ Tinh 23h30 Đêm", val_k4, delta_k4)
 
-                # Cột 1: Username
-                with r1:
-                    st.markdown(f"**@{t['username']}**")
+        st.write("")
 
-                # Cột 2: Tin nhắn
-                with r2:
-                    msg_display = t.get("custom_msg") or "Mặc định (Icon 🔥)"
-                    st.caption(f"`{msg_display}`")
+        # Hàng tiêu đề danh sách + Hai nút hành động căn giữa dọc
+        col_act1, col_act2, col_act3 = st.columns([3, 1.6, 1.2], vertical_alignment="center")
+        with col_act1:
+            st.markdown("<h3 style='margin:0; padding:0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
+        with col_act2:
+            btn_run_all = st.button("⚡ Gửi giữ chuỗi tất cả", type="primary", width="stretch")
+        with col_act3:
+            # Nút phụ Xoá hết có popover xác nhận an toàn
+            pop_clear = st.popover("🗑️ Xoá hết", width="stretch")
+            with pop_clear:
+                st.markdown("**Xác nhận xoá toàn bộ?**")
+                st.caption("Thao tác này sẽ xoá sạch danh sách bạn bè hiện tại.")
+                btn_clear_confirm = st.button("Đồng ý xoá sạch", type="primary", width="stretch")
+                if btn_clear_confirm:
+                    bot.save_targets([])
+                    st.toast("Đã xoá toàn bộ danh sách!", icon="🗑️")
+                    st.rerun()
 
-                # Cột 3: Lần gửi cuối
-                with r3:
-                    st.caption(f"🕒 {t.get('last_sent', 'Chưa gửi')}")
+        # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
+        with st.expander("➕ Thêm bạn bè", expanded=(len(targets) == 0)):
+            with st.form("add_friend_form", clear_on_submit=True):
+                fc1, fc2, fc3 = st.columns([2.5, 3.5, 1.5], vertical_alignment="bottom")
+                with fc1:
+                    username_in = st.text_input("Username TikTok (không cần @):", placeholder="ví dụ: ban_than_123")
+                with fc2:
+                    custom_msg_in = st.text_input("Tin nhắn hàng ngày (mặc định gửi icon 🔥):", placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥")
+                with fc3:
+                    submit_add = st.form_submit_button("Thêm ngay", type="primary", width="stretch")
 
-                # Cột 4: Trạng thái chuẩn màu sắc
-                with r4:
-                    status_text = t.get("status", "Ready")
-                    if "Thành công" in status_text or "Đã Rep" in status_text:
-                        badge_cls = "badge-success"
-                    elif "Thất bại" in status_text or "Lỗi" in status_text:
-                        badge_cls = "badge-danger"
-                    else:
-                        badge_cls = "badge-warning"
-                    st.markdown(f'<span class="status-badge {badge_cls}">{status_text}</span>', unsafe_allow_html=True)
+                # Mẫu hú hú mở rộng tuỳ chọn nếu muốn tuỳ biến sâu
+                with st.expander("⚙️ Cài đặt mẫu câu spam hú hú riêng (Mỗi câu 1 dòng - không bắt buộc)"):
+                    st.caption("💡 *Nếu để trống, bot sẽ tự động lấy kho 16 câu hú hú thông minh mặc định (từ nhắc nhẹ đến đe dọa troll hài hước).*")
+                    sample_placeholder = (
+                        "HÚ HÚ gửi chuỗi đi má ơi 🔥🔥🔥\n"
+                        "Sắp qua 12h đêm rồi má ơi mau gửi chuỗi đi 🔥😱\n"
+                        "Đứt chuỗi là tao qua nhà kiếm chuyện đó nha 🚨👊\n"
+                        "Dậy gửi chuỗi rồi ngủ tiếp người anh em ơi 😴🔥\n"
+                        "Chỉ cần gửi 1 dấu chấm thôi cũng được cứu chuỗi đi! 🆘🔥"
+                    )
+                    custom_spams_in = st.text_area(
+                        "Mẫu hú hú riêng:",
+                        placeholder=sample_placeholder,
+                        height=95,
+                        label_visibility="collapsed",
+                    )
 
-                # Cột 5: Nút Gửi
-                with r5:
-                    if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch"):
-                        with st.spinner(f"Đang gửi tới @{t['username']}..."):
-                            ok = bot.run_send_sync(t["username"], t.get("custom_msg"))
-                            if ok:
-                                t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                t["status"] = "Thành công 🔥"
-                                bot.save_targets(targets)
-                                st.toast(f"Đã gửi thành công tới @{t['username']}!", icon="🔥")
-                                st.rerun()
-                            else:
-                                st.error("Gửi thất bại!")
-
-                # Cột 6: Nút HÚ HÚ
-                with r6:
-                    if st.button("📢 HÚ HÚ", key=f"huhu_{idx}", width="stretch"):
-                        custom_spams = t.get("spam_messages")
-                        with st.spinner(f"🚨 Đang HÚ HÚ @{t['username']}..."):
-                            result = bot.run_spam_huhu_sync(t["username"], custom_spam_list=custom_spams, max_rounds=8)
-                            sent_num = result.get("sent", 0)
-                            replied = result.get("replied", False)
-                            if replied:
-                                t["status"] = f"Đã Rep sau {sent_num} tin! 🎉"
-                                st.balloons()
-                                st.success(f"🎉 Cứu chuỗi thành công! @{t['username']} đã rep sau {sent_num} tin!")
-                            else:
-                                t["status"] = f"Đã Hú ({sent_num} tin) 📢"
-                                st.info(f"Đã gửi {sent_num} tin hú hú tới @{t['username']}.")
+                if submit_add:
+                    clean_name = username_in.strip().replace("@", "")
+                    if clean_name:
+                        if any(t["username"].lower() == clean_name.lower() for t in targets):
+                            st.warning(f"@{clean_name} đã có trong danh sách!")
+                        else:
+                            spam_lines = [s.strip() for s in custom_spams_in.split("\n") if s.strip()] if custom_spams_in else None
+                            targets.append({
+                                "username": clean_name,
+                                "custom_msg": custom_msg_in.strip() if custom_msg_in.strip() else None,
+                                "spam_messages": spam_lines,
+                                "last_sent": "Chưa gửi",
+                                "status": "Ready",
+                            })
                             bot.save_targets(targets)
-                            time.sleep(1)
+                            st.success(f"Đã thêm @{clean_name} thành công!")
                             st.rerun()
 
-                # Cột 7: Nút Xoá dạng icon nhỏ
-                with r7:
-                    if st.button("✕", key=f"del_{idx}", help="Xoá bạn này khỏi danh sách", width="stretch"):
-                        targets.pop(idx)
-                        bot.save_targets(targets)
-                        st.toast(f"Đã xoá @{t['username']}", icon="🗑️")
-                        st.rerun()
-    else:
-        st.info("👋 Danh sách hiện đang trống. Hãy thêm bạn bè ở khung phía trên để bắt đầu giữ chuỗi!")
+        if btn_run_all:
+            if not targets:
+                st.warning("Chưa có bạn bè nào trong danh sách!")
+            else:
+                progress_holder = st.empty()
+                status_holder = st.empty()
+                progress = progress_holder.progress(0)
+
+                for idx, t in enumerate(targets):
+                    u = t["username"]
+                    m = t.get("custom_msg")
+                    status_holder.info(f"⏳ Đang gửi tin nhắn giữ chuỗi tới **@{u}** ({idx+1}/{len(targets)})...")
+                    try:
+                        success = bot.run_send_sync(u, m)
+                        if success:
+                            t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            t["status"] = "Thành công 🔥"
+                            st.toast(f"Đã gửi chuỗi tới @{u}", icon="🔥")
+                        else:
+                            t["status"] = "Thất bại ❌"
+                    except Exception as ex:
+                        t["status"] = f"Lỗi: {ex}"
+
+                    progress.progress((idx + 1) / len(targets))
+                    time.sleep(1)
+
+                bot.save_targets(targets)
+                status_holder.success("🎉 Đã hoàn tất đợt gửi chuỗi!")
+                time.sleep(1)
+                st.rerun()
+
+        # Hiển thị danh sách bạn bè chuẩn dạng bảng
+        st.write("")
+        if targets:
+            # Hàng tiêu đề cột
+            th1, th2, th3, th4, th5 = st.columns([2.0, 2.2, 1.8, 1.5, 2.5], vertical_alignment="center")
+            with th1:
+                st.markdown("<div class='table-col-header'>Tài Khoản</div>", unsafe_allow_html=True)
+            with th2:
+                st.markdown("<div class='table-col-header'>Tin Nhắn</div>", unsafe_allow_html=True)
+            with th3:
+                st.markdown("<div class='table-col-header'>Lần Gửi Cuối</div>", unsafe_allow_html=True)
+            with th4:
+                st.markdown("<div class='table-col-header'>Trạng Thái</div>", unsafe_allow_html=True)
+            with th5:
+                st.markdown("<div class='table-col-header' style='text-align:right; padding-right:12px;'>Hành Động</div>", unsafe_allow_html=True)
+
+            for idx, t in enumerate(targets):
+                with st.container(border=True):
+                    r1, r2, r3, r4, r5, r6, r7 = st.columns([2.0, 2.2, 1.8, 1.5, 1.1, 1.1, 0.4], vertical_alignment="center")
+
+                    # Cột 1: Username
+                    with r1:
+                        st.markdown(f"**@{t['username']}**")
+
+                    # Cột 2: Tin nhắn
+                    with r2:
+                        msg_display = t.get("custom_msg") or "Mặc định (Icon 🔥)"
+                        st.caption(f"`{msg_display}`")
+
+                    # Cột 3: Lần gửi cuối
+                    with r3:
+                        st.caption(f"🕒 {t.get('last_sent', 'Chưa gửi')}")
+
+                    # Cột 4: Trạng thái chuẩn màu sắc
+                    with r4:
+                        status_text = t.get("status", "Ready")
+                        if "Thành công" in status_text or "Đã Rep" in status_text:
+                            badge_cls = "badge-success"
+                        elif "Thất bại" in status_text or "Lỗi" in status_text:
+                            badge_cls = "badge-danger"
+                        else:
+                            badge_cls = "badge-warning"
+                        st.markdown(f'<span class="status-badge {badge_cls}">{status_text}</span>', unsafe_allow_html=True)
+
+                    # Cột 5: Nút Gửi
+                    with r5:
+                        if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch"):
+                            with st.spinner(f"Đang gửi tới @{t['username']}..."):
+                                ok = bot.run_send_sync(t["username"], t.get("custom_msg"))
+                                if ok:
+                                    t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    t["status"] = "Thành công 🔥"
+                                    bot.save_targets(targets)
+                                    st.toast(f"Đã gửi thành công tới @{t['username']}!", icon="🔥")
+                                    st.rerun()
+                                else:
+                                    st.error("Gửi thất bại!")
+
+                    # Cột 6: Nút HÚ HÚ
+                    with r6:
+                        if st.button("📢 HÚ HÚ", key=f"huhu_{idx}", width="stretch"):
+                            custom_spams = t.get("spam_messages")
+                            with st.spinner(f"🚨 Đang HÚ HÚ @{t['username']}..."):
+                                result = bot.run_spam_huhu_sync(t["username"], custom_spam_list=custom_spams, max_rounds=8)
+                                sent_num = result.get("sent", 0)
+                                replied = result.get("replied", False)
+                                if replied:
+                                    t["status"] = f"Đã Rep sau {sent_num} tin! 🎉"
+                                    st.balloons()
+                                    st.success(f"🎉 Cứu chuỗi thành công! @{t['username']} đã rep sau {sent_num} tin!")
+                                else:
+                                    t["status"] = f"Đã Hú ({sent_num} tin) 📢"
+                                    st.info(f"Đã gửi {sent_num} tin hú hú tới @{t['username']}.")
+                                bot.save_targets(targets)
+                                time.sleep(1)
+                                st.rerun()
+
+                    # Cột 7: Nút Xoá dạng icon nhỏ
+                    with r7:
+                        if st.button("✕", key=f"del_{idx}", help="Xoá bạn này khỏi danh sách", width="stretch"):
+                            targets.pop(idx)
+                            bot.save_targets(targets)
+                            st.toast(f"Đã xoá @{t['username']}", icon="🗑️")
+                            st.rerun()
+        else:
+            st.info("👋 Danh sách hiện đang trống. Hãy thêm bạn bè ở khung phía trên để bắt đầu giữ chuỗi!")
+
 
 # ---------------------------------------------------------------------------
 # TAB 2: CÀO DỮ LIỆU TIKTOK (CẢI TIẾN TRỰC QUAN & HIỆN LOG CHI TIẾT TRÊN UI)
