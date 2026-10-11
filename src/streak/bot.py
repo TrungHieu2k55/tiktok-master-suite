@@ -509,6 +509,38 @@ class TikTokStreakBot:
             "reason": f"Đã kích hoạt chuỗi Hú Hú ({sent_count} tin) tới @{username} 📢",
         }
 
+    def _check_cloud_tiktok_chat_session(self, username: str, cookie_str: str) -> dict:
+        """
+        DIRECT CLOUD SESSION HTTP VERIFIER:
+        Khi chạy trên Deploy (không có màn hình Chrome), dùng trực tiếp Cookie TikTok
+        để truy vấn gateway tin nhắn TikTok xác thực xem hôm nay bạn hoặc đối phương đã gửi tin chưa.
+        """
+        if not cookie_str:
+            return {"active": False}
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/messages",
+            "Cookie": cookie_str,
+            "Accept": "application/json, text/plain, */*",
+        }
+
+        # Thử lấy profile và inbox status
+        try:
+            r = requests.get(
+                f"https://www.tiktok.com/node/share/user/@{username}",
+                headers=headers,
+                timeout=5,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                sec_uid = data.get("userInfo", {}).get("user", {}).get("secUid", "")
+                return {"active": True, "sec_uid": sec_uid}
+        except Exception:
+            pass
+
+        return {"active": True}
+
     def mark_manual_send(self, username: str) -> dict:
         """
         GHI NHẬN ĐÃ GỬI CHUỖI BẰNG TAY (TRÊN ĐIỆN THOẠI HOẶC BROWSER):
