@@ -579,8 +579,7 @@ class TikTokStreakBot:
                 "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
             }
             resp = requests.get(f"https://www.tiktok.com/@{username}", headers=req_headers, timeout=5)
-            resp_lower = resp.text.lower()
-            if resp.status_code == 404 or "couldn't find this account" in resp_lower or "không thể tìm thấy tài khoản" in resp_lower:
+            if resp.status_code == 404:
                 account_exists = False
         except Exception:
             pass

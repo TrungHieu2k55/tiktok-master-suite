@@ -398,13 +398,11 @@ with tabs[1]:
         # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
         with st.expander("➕ Thêm bạn bè", expanded=(len(targets) == 0)):
             with st.form("add_friend_form", clear_on_submit=True):
-                fc1, fc2, fc_sc, fc3 = st.columns([2.4, 2.6, 1.3, 1.2], vertical_alignment="bottom")
+                fc1, fc2, fc3 = st.columns([2.5, 3.5, 1.5], vertical_alignment="bottom")
                 with fc1:
                     username_in = st.text_input("Username TikTok (không cần @):", placeholder="ví dụ: ban_than_123")
                 with fc2:
-                    custom_msg_in = st.text_input("Tin nhắn riêng:", placeholder="Ví dụ: Giữ chuỗi nè 🔥")
-                with fc_sc:
-                    streak_init_in = st.number_input("Chuỗi đã có:", min_value=0, value=0, step=1, help="Số ngày chuỗi hiện có sẵn từ trước")
+                    custom_msg_in = st.text_input("Tin nhắn hàng ngày (mặc định gửi icon 🔥):", placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥")
                 with fc3:
                     submit_add = st.form_submit_button("Thêm ngay", type="primary", width="stretch")
 
@@ -432,18 +430,30 @@ with tabs[1]:
                             st.warning(f"@{clean_name} đã có trong danh sách!")
                         else:
                             spam_lines = [s.strip() for s in custom_spams_in.split("\n") if s.strip()] if custom_spams_in else None
-                            init_sc = int(streak_init_in)
-                            targets.append({
+                            new_entry = {
                                 "username": clean_name,
                                 "custom_msg": custom_msg_in.strip() if custom_msg_in.strip() else None,
                                 "spam_messages": spam_lines,
-                                "streak_count": init_sc,
+                                "streak_count": 0,
                                 "friend_replied": False,
                                 "last_sent": "Chưa gửi",
-                                "status": f"Chuỗi {init_sc} ngày 🔥" if init_sc > 0 else "Ready",
-                            })
+                                "status": "Ready",
+                            }
+                            # Tự động soi và kiểm tra chuỗi ngay lập tức khi vừa thêm
+                            try:
+                                check_res = bot.run_check_sync(clean_name)
+                                if check_res.get("checked"):
+                                    new_entry["status"] = check_res.get("status_desc")
+                                    if "streak_count" in check_res:
+                                        new_entry["streak_count"] = check_res["streak_count"]
+                                    if "friend_replied" in check_res:
+                                        new_entry["friend_replied"] = check_res["friend_replied"]
+                            except Exception as ex:
+                                log.debug("Tự động check khi thêm bạn gặp lỗi: %s", ex)
+
+                            targets.append(new_entry)
                             bot.save_targets(targets)
-                            st.success(f"Đã thêm @{clean_name} thành công!")
+                            st.success(f"🎉 Đã thêm @{clean_name} và tự động nhận diện chuỗi thành công!")
                             st.rerun()
 
         if btn_check_all:
