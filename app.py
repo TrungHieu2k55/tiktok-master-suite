@@ -340,7 +340,7 @@ with tabs[1]:
         st.write("")
         if targets:
             # Hàng tiêu đề cột
-            th1, th2, th3, th4, th5 = st.columns([2.0, 2.2, 1.8, 1.5, 2.5], vertical_alignment="center")
+            th1, th2, th3, th4, th5 = st.columns([1.8, 2.0, 1.6, 1.8, 2.8], vertical_alignment="center")
             with th1:
                 st.markdown("<div class='table-col-header'>Tài Khoản</div>", unsafe_allow_html=True)
             with th2:
@@ -354,7 +354,7 @@ with tabs[1]:
 
             for idx, t in enumerate(targets):
                 with st.container(border=True):
-                    r1, r2, r3, r4, r5, r6, r7 = st.columns([2.0, 2.2, 1.8, 1.5, 1.1, 1.1, 0.4], vertical_alignment="center")
+                    r1, r2, r3, r4, r_check, r5, r6, r7 = st.columns([1.8, 2.0, 1.6, 1.8, 0.9, 0.9, 0.9, 0.4], vertical_alignment="center")
 
                     # Cột 1: Username
                     with r1:
@@ -379,6 +379,23 @@ with tabs[1]:
                         else:
                             badge_cls = "badge-warning"
                         st.markdown(f'<span class="status-badge {badge_cls}">{status_text}</span>', unsafe_allow_html=True)
+
+                    # Nút Soi / Check Chuỗi Tự Động
+                    with r_check:
+                        if st.button("🔍 Check", key=f"check_{idx}", help="Kiểm tra đối phương đã gửi chuỗi lại chưa", width="stretch"):
+                            with st.spinner(f"Đang kiểm tra cuộc trò chuyện với @{t['username']}..."):
+                                check_res = bot.run_check_sync(t["username"])
+                                if check_res.get("checked"):
+                                    t["status"] = check_res.get("status_desc")
+                                    if check_res.get("friend_replied"):
+                                        st.success(f"@{t['username']}: {check_res.get('status_desc')}")
+                                    else:
+                                        st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
+                                else:
+                                    st.error(f"Lỗi kiểm tra: {check_res.get('status_desc')}")
+                                bot.save_targets(targets)
+                                time.sleep(1)
+                                st.rerun()
 
                     # Cột 5: Nút Gửi
                     with r5:

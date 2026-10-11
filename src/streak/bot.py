@@ -186,3 +186,100 @@ class TikTokStreakBot:
 
     def run_spam_huhu_sync(self, username: str, custom_spam_list: list[str] | None = None, max_rounds: int = 8) -> dict:
         return self.spam_hu_hu(username, custom_spam_list=custom_spam_list, max_rounds=max_rounds)
+
+    def check_streak_status(self, username: str) -> dict:
+        """
+        KIỂM TRA TỰ ĐỘNG XEM ĐÃ CÓ CHUỖI VỚI BẠN BÈ VÀ NGƯỜI ĐÓ ĐÃ REP CHƯA:
+        1. Mở cuộc trò chuyện với @username
+        2. Quét biểu tượng chuỗi lửa 🔥 (streak count / badges)
+        3. Phân tích tin nhắn cuối xem đối phương đã gửi lại chưa
+        """
+        driver = self._get_driver(headless=self.headless)
+        try:
+            input_box = self._open_chat_box(driver, username)
+            if not input_box:
+                return {
+                    "checked": False,
+                    "has_streak": False,
+                    "streak_count": 0,
+                    "friend_replied": False,
+                    "status_desc": "Không mở được khung chat",
+                }
+
+            time.sleep(2)
+
+            # 1. Quét tìm chuỗi lửa
+            streak_found = False
+            streak_count = 0
+            selectors = [
+                "[data-e2e*='streak']",
+                "[class*='Streak']",
+                "[aria-label*='streak']",
+                "[aria-label*='chuỗi']",
+            ]
+            for sel in selectors:
+                try:
+                    elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                    if elems:
+                        streak_found = True
+                        for el in elems:
+                            txt = el.text.strip()
+                            if txt.isdigit():
+                                streak_count = int(txt)
+                                break
+                        break
+                except Exception:
+                    continue
+
+            # 2. Phân tích tin nhắn gần nhất
+            friend_replied = False
+            last_msg_text = ""
+            try:
+                all_bubbles = driver.find_elements(By.CSS_SELECTOR, "[data-e2e='chat-item'], div[class*='ChatMessage'], div[class*='message-item']")
+                if all_bubbles:
+                    last_bubble = all_bubbles[-1]
+                    last_msg_text = last_bubble.text.strip().replace("\n", " ")
+                    bubble_html = last_bubble.get_attribute("outerHTML") or ""
+                    # Nếu không phải tin do mình gửi (class self/right) -> là bạn bè gửi
+                    if "self" not in bubble_html.lower() and "right" not in bubble_html.lower():
+                        friend_replied = True
+            except Exception as e:
+                log.warning("Lỗi phân tích tin nhắn: %s", e)
+
+            # Kết luận trạng thái
+            if streak_found:
+                desc = f"Đang có chuỗi {streak_count} ngày 🔥" if streak_count > 0 else "Đang có chuỗi lửa 🔥"
+            else:
+                desc = "Chưa phát hiện biểu tượng chuỗi"
+
+            if friend_replied:
+                desc += " • Người kia đã nhắn lại! ✅"
+            else:
+                desc += " • Đang chờ người kia gửi ⚠️"
+
+            return {
+                "checked": True,
+                "has_streak": streak_found,
+                "streak_count": streak_count,
+                "friend_replied": friend_replied,
+                "last_message": last_msg_text,
+                "status_desc": desc,
+            }
+        except Exception as e:
+            log.error("Lỗi kiểm tra chuỗi @%s: %s", username, e)
+            return {
+                "checked": False,
+                "has_streak": False,
+                "streak_count": 0,
+                "friend_replied": False,
+                "status_desc": f"Lỗi: {e}",
+            }
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+    def run_check_sync(self, username: str) -> dict:
+        return self.check_streak_status(username)
+
