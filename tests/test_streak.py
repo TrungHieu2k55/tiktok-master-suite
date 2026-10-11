@@ -15,8 +15,15 @@ class TestStreakBot(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.bot = TikTokStreakBot(headless=True)
         self.bot.config_path = Path(self.test_dir) / "streak_targets.json"
+        # Cách ly Unit Test khỏi Live Supabase để không ghi đè dữ liệu thật
+        self.patch_supa_get = patch("src.streak.bot.supabase_get", return_value=None)
+        self.patch_supa_set = patch("src.streak.bot.supabase_set", return_value=True)
+        self.patch_supa_get.start()
+        self.patch_supa_set.start()
 
     def tearDown(self):
+        self.patch_supa_get.stop()
+        self.patch_supa_set.stop()
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_load_empty_targets(self):

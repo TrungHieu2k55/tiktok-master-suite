@@ -53,7 +53,13 @@ def get_supabase_config() -> tuple[str, str]:
     # 3. Biến môi trường
     u = os.getenv("SUPABASE_URL", "").strip()
     k = os.getenv("SUPABASE_KEY", "").strip()
-    return u, k
+    if u and k:
+        return u, k
+
+    # 4. Dự phòng mặc định của dự án
+    default_u = "https://khjergeqkpcudoziibbr.supabase.co"
+    default_k = "sb_publishable_mwjS6y7d8KVBQU-_80MGXg_UjaOFEuG"
+    return default_u, default_k
 
 
 def save_supabase_config(url: str, key: str) -> bool:
