@@ -408,18 +408,21 @@ with tabs[1]:
                     with r_check:
                         if st.button("🔍 Check", key=f"check_{idx}", help="Kiểm tra đối phương đã gửi chuỗi lại chưa", width="stretch"):
                             with st.spinner(f"Đang kiểm tra cuộc trò chuyện với @{t['username']}..."):
-                                check_res = bot.run_check_sync(t["username"])
-                                if check_res.get("checked"):
-                                    t["status"] = check_res.get("status_desc")
-                                    if check_res.get("friend_replied"):
-                                        st.success(f"@{t['username']}: {check_res.get('status_desc')}")
+                                try:
+                                    check_res = bot.run_check_sync(t["username"])
+                                    if check_res.get("checked"):
+                                        t["status"] = check_res.get("status_desc")
+                                        if check_res.get("friend_replied"):
+                                            st.success(f"@{t['username']}: {check_res.get('status_desc')}")
+                                        else:
+                                            st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
                                     else:
-                                        st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
-                                else:
-                                    st.error(f"Lỗi kiểm tra: {check_res.get('status_desc')}")
-                                bot.save_targets(targets)
-                                time.sleep(1)
-                                st.rerun()
+                                        st.error(f"Lỗi kiểm tra: {check_res.get('status_desc')}")
+                                    bot.save_targets(targets)
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as err:
+                                    st.error(f"⚠️ {err}")
 
                     # Cột 5: Nút Gửi
                     with r5:

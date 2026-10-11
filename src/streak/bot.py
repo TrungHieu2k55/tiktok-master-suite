@@ -27,19 +27,44 @@ class TikTokStreakBot:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_driver(self, headless: bool = False):
+        import os
+        import shutil
         options = Options()
         options.add_argument(f"--user-data-dir={self.profile_dir}")
         options.add_argument("--profile-directory=Default")
         options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
 
-        if headless:
+        # Trên môi trường Cloud Linux không có display, bắt buộc chạy headless
+        is_cloud = os.environ.get("STREAMLIT_SERVER_PORT") or (os.name != "nt")
+        if headless or is_cloud:
             options.add_argument("--headless=new")
 
-        service = Service()
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
+        for bin_path in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
+            if os.path.exists(bin_path):
+                options.binary_location = bin_path
+                break
+
+        driver_path = shutil.which("chromedriver") or "/usr/bin/chromedriver"
+        if os.path.exists(driver_path):
+            service = Service(executable_path=driver_path)
+        else:
+            service = Service()
+
+        try:
+            driver = webdriver.Chrome(service=service, options=options)
+            return driver
+        except Exception as e:
+            log.warning("Không thể khởi động ChromeDriver: %s", e)
+            raise RuntimeError(
+                "Không tìm thấy trình duyệt Chrome cục bộ để tự động hóa. "
+                "Tính năng Giữ Chuỗi & Hú Hú cần chạy trên máy tính cá nhân (Local) có sẵn Google Chrome. "
+                "Trên Streamlit Cloud, bạn hãy sử dụng Tab 1 (Khám phá API) và Tab 3/4 (Cào dữ liệu & Phân tích) nhé!"
+            ) from e
 
     def load_targets(self) -> list[dict]:
         if not self.config_path.exists():
