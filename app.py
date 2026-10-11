@@ -144,15 +144,28 @@ with st.sidebar:
 
     st.write("")
 
-    # Nhóm Phiên đăng nhập
+    # Nhóm Phiên đăng nhập (Live Health Check)
     st.markdown("#### 🔐 Phiên đăng nhập")
-    has_cookie = bool(bot.load_session_cookie_string())
-    if profile_exists or has_cookie:
-        st.success("🟢 Đã có phiên TikTok")
+    saved_cookie = bot.load_session_cookie_string()
+    health_res = bot.check_session_health() if saved_cookie else {"status": "none", "valid": False, "expired": False}
+
+    if health_res.get("expired"):
+        st.error("🔴 Phiên TikTok đã hết hạn!")
+        st.caption("⚠️ Token TikTok đã hết hạn. Hãy bấm nút đỏ bên dưới để cập nhật sessionid mới.")
+        cookie_label = "🔴 Hết hạn"
+    elif health_res.get("valid"):
+        u_tag = health_res.get("username")
+        tag_str = f" (@{u_tag})" if u_tag else ""
+        st.success(f"🟢 Phiên TikTok hoạt động{tag_str}")
+        cookie_label = "🟢 Đã nạp"
+    elif profile_exists:
+        st.success("🟢 Phiên Chrome Local")
+        cookie_label = "🟢 Đã nạp"
     else:
         st.warning("🟡 Chưa có phiên TikTok")
+        cookie_label = "🍪 Nạp Cookie"
 
-    c_lg1, c_lg2 = st.columns([1.2, 1])
+    c_lg1, c_lg2 = st.columns([1.1, 1.1])
     with c_lg1:
         if st.button("🔑 Đăng nhập", width="stretch", type="secondary", help="Mở Chrome trên máy tính để đăng nhập"):
             with st.spinner("Đang mở Chrome... Hãy đăng nhập và đóng trình duyệt khi xong."):
@@ -160,12 +173,13 @@ with st.sidebar:
                 st.success("Đã đồng bộ phiên đăng nhập!")
                 st.rerun()
     with c_lg2:
-        saved_cookie = bot.load_session_cookie_string()
-        cookie_label = "🟢 Đã nạp" if saved_cookie else "🍪 Phiên TikTok"
         pop_cookie = st.popover(cookie_label, width="stretch")
         with pop_cookie:
             st.markdown("**Quản Lý Phiên TikTok**")
-            if saved_cookie:
+            if health_res.get("expired"):
+                st.error("❌ Cookie hiện tại đã hết hạn (Session Expired)!")
+                st.caption("TikTok đã vô hiệu hóa token này. Vui lòng copy sessionid mới từ trình duyệt và lưu lại bên dưới:")
+            elif saved_cookie:
                 preview = (saved_cookie[:25] + "...") if len(saved_cookie) > 25 else saved_cookie
                 st.success(f"🟢 Đang kết nối: `{preview}`")
                 if st.button("🗑️ Xóa phiên đăng nhập", width="stretch"):
@@ -174,15 +188,24 @@ with st.sidebar:
             else:
                 st.info("⚪ Chưa có cookie phiên")
 
-            st.caption("Dán sessionid hoặc Cookie để giữ chuỗi trên Cloud:")
+            st.caption("Dán sessionid hoặc Cookie mới vào đây:")
             with st.form("cookie_form"):
                 cookie_in = st.text_area("Chuỗi Cookie / sessionid:", placeholder="sessionid=xxxx; ...", height=70)
-                sub_cookie = st.form_submit_button("💾 Lưu Phiên", type="primary", width="stretch")
+                sub_cookie = st.form_submit_button("💾 Lưu Phiên Mới", type="primary", width="stretch")
                 if sub_cookie and cookie_in.strip():
                     bot.save_session_cookie_string(cookie_in.strip())
-                    st.success("Đã lưu thành công!")
+                    st.success("Đã lưu thành công! Đang tải lại...")
                     time.sleep(0.5)
                     st.rerun()
+
+            with st.expander("💡 Cách lấy sessionid nhanh (10 giây)"):
+                st.markdown("""
+1. Mở [tiktok.com](https://www.tiktok.com) trên trình duyệt máy tính đã đăng nhập.
+2. Bấm phím **F12** -> chọn tab **Application** (Ứng dụng).
+3. Cột bên trái: **Cookies** -> `https://www.tiktok.com`.
+4. Tìm dòng tên **sessionid** -> Copy toàn bộ chuỗi **Value**.
+5. Dán vào ô trên rồi bấm **Lưu Phiên Mới**!
+""")
 
             st.divider()
             st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")

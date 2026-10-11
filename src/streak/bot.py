@@ -107,6 +107,66 @@ class TikTokStreakBot:
             pass
         return ""
 
+    def check_session_health(self) -> dict:
+        """
+        KIỂM TRA TÌNH TRẠNG THỰC TẾ CỦA PHIÊN COOKIE TIKTOK (LIVE SESSION HEALTH CHECK):
+        1. Gọi trực tiếp endpoint xác thực tài khoản của TikTok:
+           https://www.tiktok.com/passport/web/account/info/?aid=1988
+        2. Phân tích kết quả:
+           - Nếu TikTok trả về error_code 13 hoặc 'session_expired':
+             => PHIÊN ĐÃ HẾT HẠN!
+           - Nếu có thông tin tài khoản (user_id, username, nickname):
+             => PHIÊN HOẠT ĐỘNG HOÀN HẢO!
+           - Nếu chưa có cookie:
+             => CHƯA CÓ PHIÊN.
+        """
+        cookie_str = self.load_session_cookie_string()
+        if not cookie_str:
+            return {"status": "none", "valid": False, "expired": False, "msg": "Chưa nạp Cookie"}
+
+        if "sessionid" not in cookie_str:
+            return {"status": "invalid", "valid": False, "expired": True, "msg": "Thiếu sessionid trong Cookie"}
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+            "Cookie": cookie_str,
+            "Accept": "application/json, text/plain, */*",
+        }
+
+        try:
+            r = requests.get(
+                "https://www.tiktok.com/passport/web/account/info/?aid=1988",
+                headers=headers,
+                timeout=5,
+            )
+            if r.status_code == 200:
+                data = r.json().get("data", {})
+                err_code = data.get("error_code")
+                err_name = data.get("name")
+                if err_code == 13 or err_name == "session_expired":
+                    return {
+                        "status": "expired",
+                        "valid": False,
+                        "expired": True,
+                        "msg": "Phiên TikTok đã hết hạn (Session Expired)",
+                        "detail": data.get("description", "Phiên đăng nhập đã hết hạn, vui lòng nạp lại"),
+                    }
+                if data.get("user_id") or data.get("username") or data.get("screen_name") or data.get("is_login"):
+                    user_tag = data.get("username") or data.get("screen_name") or data.get("user_id")
+                    return {
+                        "status": "active",
+                        "valid": True,
+                        "expired": False,
+                        "username": user_tag,
+                        "msg": f"Phiên hoạt động (@{user_tag})",
+                    }
+        except Exception as e:
+            log.debug("Session health check exception: %s", e)
+            return {"status": "unknown", "valid": True, "expired": False, "msg": "Không thể kiểm tra (Mạng yếu)"}
+
+        return {"status": "unknown", "valid": True, "expired": False, "msg": "Đã lưu Cookie"}
+
     def _get_driver(self, headless: bool = False):
         """
         Khởi tạo Chrome Driver an toàn, chống crash trên cả Windows và Linux/Streamlit Cloud.
@@ -646,12 +706,27 @@ class TikTokStreakBot:
     def auto_scan_friends_from_api(self) -> dict:
         """
         TỰ ĐỘNG QUÉT BẠN BÈ VÀ CHECK CHUỖI TỪ TIKTOK API:
-        1. Gọi trực tiếp API cuộc trò chuyện / tin nhắn / bạn bè của TikTok bằng Cookie / Session.
-        2. Tự động bóc tách toàn bộ danh sách bạn bè, số chuỗi streak hiện tại, trạng thái đã gửi/rep hôm nay.
-        3. Nếu API trực tiếp không trả về (do TikTok chặn IP Cloud/bot), tự động bật Selenium quét hộp thư chat.
+        1. Kiểm tra tình trạng sống/chết (Health Check) của phiên Cookie trước khi quét.
+        2. Gọi trực tiếp API cuộc trò chuyện / tin nhắn / bạn bè của TikTok bằng Cookie / Session.
+        3. Tự động bóc tách toàn bộ danh sách bạn bè, số chuỗi streak hiện tại, trạng thái đã gửi/rep hôm nay.
         4. Tự động hợp nhất vào danh sách mục tiêu (giữ nguyên cài đặt tin nhắn riêng) và đồng bộ Cloud.
         """
         cookie_str = self.load_session_cookie_string()
+        if not cookie_str:
+            return {
+                "success": False,
+                "total_scanned": 0,
+                "reason": "Chưa có Cookie / Session ID của TikTok. Vui lòng dán cookie hoặc bấm 'Tự động lấy cookie' trước.",
+            }
+
+        health = self.check_session_health()
+        if health.get("expired"):
+            return {
+                "success": False,
+                "total_scanned": 0,
+                "reason": "⚠️ Phiên đăng nhập TikTok của bạn ĐÃ HẾT HẠN (Session Expired)! TikTok đã thu hồi token này. Vui lòng lấy cookie mới trên TikTok Web (F12 -> Application -> Cookies -> sessionid) rồi dán vào ô 'Phiên TikTok' ở cột bên trái.",
+            }
+
         scanned_dict = {}
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -1053,7 +1128,11 @@ class TikTokStreakBot:
             status_desc = "Sẵn sàng • Chưa ghi nhận gửi hôm nay ⏳"
 
         if cookie_active:
-            status_desc += " [Phiên TikTok: Đã kết nối 🟢]"
+            health = self.check_session_health()
+            if health.get("expired"):
+                status_desc += " [Phiên TikTok: Đã hết hạn 🔴]"
+            else:
+                status_desc += " [Phiên TikTok: Đã kết nối 🟢]"
 
         self._update_target_check_result(username, status_desc, streak_count, friend_replied, now_str)
 

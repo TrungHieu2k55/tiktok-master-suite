@@ -139,5 +139,31 @@ class TestStreakBot(unittest.TestCase):
                 self.assertIn("TikTok API ⚡", res["status_desc"])
 
 
+    def test_check_session_health_expired(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {"error_code": 13, "name": "session_expired", "description": "session expired, please sign in again"}
+        }
+        with patch.object(self.bot, "load_session_cookie_string", return_value="sessionid=expired_token;"):
+            with patch("requests.get", return_value=mock_resp):
+                health = self.bot.check_session_health()
+                self.assertTrue(health["expired"])
+                self.assertFalse(health["valid"])
+
+    def test_check_session_health_active(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {"user_id": "12345", "username": "active_user", "is_login": True}
+        }
+        with patch.object(self.bot, "load_session_cookie_string", return_value="sessionid=active_token;"):
+            with patch("requests.get", return_value=mock_resp):
+                health = self.bot.check_session_health()
+                self.assertFalse(health["expired"])
+                self.assertTrue(health["valid"])
+                self.assertEqual(health["username"], "active_user")
+
+
 if __name__ == "__main__":
     unittest.main()
