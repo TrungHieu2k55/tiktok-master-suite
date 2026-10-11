@@ -125,16 +125,33 @@ with st.sidebar:
 
     # Nhóm Phiên đăng nhập
     st.markdown("#### 🔐 Phiên đăng nhập")
-    if profile_exists:
-        st.success("🟢 Đã lưu Profile Chrome")
+    has_cookie = bool(bot.load_session_cookie_string())
+    if profile_exists or has_cookie:
+        st.success("🟢 Đã có phiên TikTok")
     else:
-        st.warning("🟡 Chưa có Profile Chrome")
+        st.warning("🟡 Chưa có phiên TikTok")
 
-    if st.button("🔑 Đăng nhập Chrome", width="stretch", type="secondary"):
-        with st.spinner("Đang mở Chrome... Hãy đăng nhập và đóng trình duyệt khi xong."):
-            bot.run_login_sync()
-            st.success("Đã đồng bộ phiên đăng nhập!")
-            st.rerun()
+    c_lg1, c_lg2 = st.columns([1.2, 1])
+    with c_lg1:
+        if st.button("🔑 Đăng nhập", width="stretch", type="secondary", help="Mở Chrome trên máy tính để đăng nhập"):
+            with st.spinner("Đang mở Chrome... Hãy đăng nhập và đóng trình duyệt khi xong."):
+                bot.run_login_sync()
+                st.success("Đã đồng bộ phiên đăng nhập!")
+                st.rerun()
+    with c_lg2:
+        pop_cookie = st.popover("🍪 Cookie", width="stretch")
+        with pop_cookie:
+            st.markdown("**Nhập Cookie TikTok**")
+            st.caption("Dành riêng khi chạy trên Cloud (không có màn hình mở Chrome).")
+            with st.form("cookie_form"):
+                cookie_in = st.text_area("Dán chuỗi Cookie hoặc sessionid:", placeholder="sessionid=xxxx; ...", height=80)
+                sub_cookie = st.form_submit_button("Lưu Cookie", type="primary", width="stretch")
+                if sub_cookie and cookie_in.strip():
+                    bot.save_session_cookie_string(cookie_in.strip())
+                    st.success("Đã lưu Cookie phiên thành công!")
+                    st.toast("Đã nạp Cookie TikTok!", icon="🍪")
+                    time.sleep(1)
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------

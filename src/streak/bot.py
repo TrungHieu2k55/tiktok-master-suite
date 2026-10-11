@@ -26,6 +26,16 @@ class TikTokStreakBot:
         self.config_path = STREAK_CONFIG_FILE
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
+    def save_session_cookie_string(self, cookie_str: str) -> None:
+        cookie_file = SESSION_DIR / "session_cookie.txt"
+        cookie_file.write_text(cookie_str.strip(), encoding="utf-8")
+
+    def load_session_cookie_string(self) -> str:
+        cookie_file = SESSION_DIR / "session_cookie.txt"
+        if cookie_file.exists():
+            return cookie_file.read_text(encoding="utf-8").strip()
+        return ""
+
     def _get_driver(self, headless: bool = False):
         import os
         import shutil
@@ -36,18 +46,24 @@ class TikTokStreakBot:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
+        options.add_argument("--remote-debugging-port=9222")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
 
-        # Trên môi trường Cloud Linux không có display, bắt buộc chạy headless
         is_cloud = os.environ.get("STREAMLIT_SERVER_PORT") or (os.name != "nt")
         if headless or is_cloud:
             options.add_argument("--headless=new")
 
-        for bin_path in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
-            if os.path.exists(bin_path):
-                options.binary_location = bin_path
+        for bin_name in ["chromium", "chromium-browser", "google-chrome"]:
+            p = shutil.which(bin_name)
+            if p:
+                options.binary_location = p
                 break
+        else:
+            for direct_p in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
+                if os.path.exists(direct_p):
+                    options.binary_location = direct_p
+                    break
 
         driver_path = shutil.which("chromedriver") or "/usr/bin/chromedriver"
         if os.path.exists(driver_path):
@@ -55,16 +71,22 @@ class TikTokStreakBot:
         else:
             service = Service()
 
-        try:
-            driver = webdriver.Chrome(service=service, options=options)
-            return driver
-        except Exception as e:
-            log.warning("Không thể khởi động ChromeDriver: %s", e)
-            raise RuntimeError(
-                "Không tìm thấy trình duyệt Chrome cục bộ để tự động hóa. "
-                "Tính năng Giữ Chuỗi & Hú Hú cần chạy trên máy tính cá nhân (Local) có sẵn Google Chrome. "
-                "Trên Streamlit Cloud, bạn hãy sử dụng Tab 1 (Khám phá API) và Tab 3/4 (Cào dữ liệu & Phân tích) nhé!"
-            ) from e
+        driver = webdriver.Chrome(service=service, options=options)
+
+        # Nếu có cookie được lưu (dành cho Cloud), tự động inject vào trình duyệt
+        cookie_str = self.load_session_cookie_string()
+        if cookie_str:
+            try:
+                driver.get("https://www.tiktok.com")
+                time.sleep(2)
+                for part in cookie_str.split(";"):
+                    if "=" in part:
+                        k, v = part.strip().split("=", 1)
+                        driver.add_cookie({"name": k.strip(), "value": v.strip(), "domain": ".tiktok.com", "path": "/"})
+            except Exception as ec:
+                log.warning("Inject cookie warning: %s", ec)
+
+        return driver
 
     def load_targets(self) -> list[dict]:
         if not self.config_path.exists():
