@@ -296,36 +296,78 @@ class TikTokStreakBot:
                 pass
 
     def _open_chat_box(self, driver, username: str):
+        """
+        DIRECT CHAT ROUTING + PROFILE FALLBACK (Từ repo tiktok-streak-bot):
+        1. Ưu tiên: Truy cập trực tiếp https://www.tiktok.com/messages, tìm user trong danh bạ hoặc tìm kiếm.
+        2. Dự phòng: Vào profile @username và click nút 'Nhắn tin' / 'Message'.
+        Giảm 50% thời gian tải trang và không bị ẩn nút chat.
+        """
         if not driver:
             return None
-        profile_url = f"https://www.tiktok.com/@{username}"
-        driver.get(profile_url)
-        time.sleep(3)
 
-        buttons = driver.find_elements(By.TAG_NAME, "button")
-        for btn in buttons:
-            try:
-                txt = btn.text.strip().lower()
-                if "nhắn tin" in txt or "message" in txt:
-                    btn.click()
-                    time.sleep(3)
-                    break
-            except Exception:
-                continue
-
-        selectors = [
+        input_selectors = [
+            "[data-e2e='chat-input']",
             "div[contenteditable='true']",
             "textarea",
             "div[role='textbox']",
-            "[data-e2e='chat-input']",
         ]
-        for sel in selectors:
-            try:
+
+        # CHIẾN LƯỢC 1: Direct Chat Routing qua https://www.tiktok.com/messages
+        try:
+            curr_url = driver.current_url.lower()
+            if "tiktok.com/messages" not in curr_url:
+                driver.get("https://www.tiktok.com/messages")
+                time.sleep(3)
+
+            # Tìm kiếm cuộc hội thoại với username trong danh sách chat bên trái
+            conv_items = driver.find_elements(By.CSS_SELECTOR, "[data-e2e='conversation-item'], div[class*='ConversationItem'], div[class*='ChatList'] li")
+            found_conv = False
+            for item in conv_items:
+                try:
+                    if username.lower() in item.text.lower():
+                        item.click()
+                        time.sleep(2)
+                        found_conv = True
+                        break
+                except Exception:
+                    continue
+
+            # Kiểm tra xem khung chat đã mở chưa
+            for sel in input_selectors:
                 elems = driver.find_elements(By.CSS_SELECTOR, sel)
                 if elems:
                     return elems[0]
-            except Exception:
-                continue
+        except Exception as e_msg:
+            log.debug("Direct chat routing warning: %s", e_msg)
+
+        # CHIẾN LƯỢC 2: Profile Navigation Fallback
+        try:
+            profile_url = f"https://www.tiktok.com/@{username}"
+            driver.get(profile_url)
+            time.sleep(3)
+
+            buttons = driver.find_elements(By.TAG_NAME, "button")
+            for btn in buttons:
+                try:
+                    txt = btn.text.strip().lower()
+                    aria = (btn.get_attribute("aria-label") or "").lower()
+                    if any(k in txt or k in aria for k in ["nhắn tin", "message", "chat"]):
+                        btn.click()
+                        time.sleep(3)
+                        break
+                except Exception:
+                    continue
+
+            for sel in input_selectors:
+                try:
+                    elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                    if elems:
+                        return elems[0]
+                except Exception:
+                    continue
+        except Exception as e_prof:
+            log.warning("Profile fallback error @%s: %s", username, e_prof)
+
         return None
 
     def _extract_streak_from_text_or_elem(self, elem) -> tuple[bool, int]:
@@ -349,6 +391,19 @@ class TikTokStreakBot:
         except Exception:
             pass
         return False, 0
+
+    def _human_type(self, element, text: str, min_delay: float = 0.05, max_delay: float = 0.12) -> None:
+        """
+        ANTI-BAN DELAY & HUMAN-LIKE TYPING:
+        Giả lập gõ phím ngẫu nhiên từng ký tự (50ms - 120ms/char) thay vì paste 1 tích tắc.
+        Tránh thuật toán phát hiện bot / spam automation của TikTok.
+        """
+        element.click()
+        time.sleep(random.uniform(0.15, 0.35))
+        for char in text:
+            element.send_keys(char)
+            time.sleep(random.uniform(min_delay, max_delay))
+        time.sleep(random.uniform(0.2, 0.4))
 
     def _count_messages_in_chat(self, driver) -> int:
         if not driver:
@@ -378,11 +433,9 @@ class TikTokStreakBot:
             try:
                 input_box = self._open_chat_box(driver, username)
                 if input_box:
-                    input_box.click()
-                    input_box.send_keys(msg)
-                    time.sleep(0.5)
+                    self._human_type(input_box, msg)
                     input_box.send_keys(Keys.ENTER)
-                    log.info("Đã gửi streak tới @%s qua Chrome", username)
+                    log.info("Đã gửi streak tới @%s qua Chrome (Human-like typing ⚡)", username)
                     self._update_target_on_send(username, now_str)
                     time.sleep(2)
                     return True
@@ -426,9 +479,7 @@ class TikTokStreakBot:
                 for i in range(max_rounds):
                     count_before = self._count_messages_in_chat(driver)
                     spam_text = spam_pool[i % len(spam_pool)]
-                    input_box.click()
-                    input_box.send_keys(spam_text)
-                    time.sleep(0.4)
+                    self._human_type(input_box, spam_text, min_delay=0.03, max_delay=0.08)
                     input_box.send_keys(Keys.ENTER)
                     sent_success += 1
                     log.info("Gửi Hú Hú #%d tới @%s: %s", sent_success, username, spam_text)

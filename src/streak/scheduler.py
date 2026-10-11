@@ -17,20 +17,59 @@ from src.utils.logger import get_logger
 log = get_logger(__name__)
 
 
-def load_scheduler_enabled() -> bool:
+def load_scheduler_config() -> dict:
+    default_cfg = {
+        "enabled": False,
+        "streak_hours": [8, 20],
+        "huhu_time": "23:30",
+    }
+    # 1. Thử lấy từ Supabase
     try:
+        supa_cfg = supabase_get("scheduler_config")
+        if isinstance(supa_cfg, dict):
+            return {**default_cfg, **supa_cfg}
         supa_val = supabase_get("auto_night_guard")
         if supa_val is not None:
-            return bool(supa_val)
+            default_cfg["enabled"] = bool(supa_val)
     except Exception:
         pass
+
+    # 2. Thử lấy từ file app_settings.json
     try:
         if APP_SETTINGS_FILE.exists():
             data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
-            return bool(data.get("auto_night_guard", False))
+            if "scheduler_config" in data and isinstance(data["scheduler_config"], dict):
+                return {**default_cfg, **data["scheduler_config"]}
+            if "auto_night_guard" in data:
+                default_cfg["enabled"] = bool(data["auto_night_guard"])
     except Exception as e:
         log.warning("Lỗi đọc app_settings: %s", e)
-    return False
+    return default_cfg
+
+
+def load_scheduler_enabled() -> bool:
+    return load_scheduler_config().get("enabled", False)
+
+
+def save_scheduler_config(cfg: dict):
+    try:
+        APP_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if APP_SETTINGS_FILE.exists():
+            try:
+                data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["scheduler_config"] = cfg
+        data["auto_night_guard"] = bool(cfg.get("enabled", False))
+        APP_SETTINGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            supabase_set("scheduler_config", cfg)
+            supabase_set("auto_night_guard", bool(cfg.get("enabled", False)))
+        except Exception:
+            pass
+    except Exception as e:
+        log.warning("Lỗi ghi scheduler_config: %s", e)
 
 
 def save_scheduler_enabled(enabled: bool):
@@ -128,17 +167,25 @@ class StreakScheduler:
             today_str = now.strftime("%Y-%m-%d")
             hour = now.hour
             minute = now.minute
+            cfg = load_scheduler_config()
 
-            # 1. Ban ngày: 08:00 và 20:00
-            if hour in [8, 20] and self.last_run_tag != f"{today_str}_{hour}":
-                log.info("⏰ Khung giờ gửi chuỗi: %02d:00", hour)
+            # 1. Khung giờ gửi chuỗi tự động linh hoạt (Mặc định: 8h, 20h)
+            streak_hours = cfg.get("streak_hours", [8, 20])
+            if hour in streak_hours and self.last_run_tag != f"{today_str}_{hour}":
+                log.info("⏰ Đến khung giờ tự động gửi chuỗi: %02d:00", hour)
                 self.run_normal_streak_check()
                 self.last_run_tag = f"{today_str}_{hour}"
 
-            # 2. Đêm: 23:30 trở đi
-            tag_night = f"{today_str}_night_2330"
-            if hour == 23 and minute >= 30 and self.last_run_tag != tag_night:
-                log.warning("🚨 ĐÃ ĐẾN 23:30 ĐÊM! KÍCH HOẠT HÚ HÚ THÔNG MINH CỨU CHUỖI!")
+            # 2. Khung giờ khẩn cấp HÚ HÚ ban đêm linh hoạt (Mặc định: 23:30)
+            huhu_time_str = cfg.get("huhu_time", "23:30")
+            try:
+                hh_h, hh_m = [int(x) for x in huhu_time_str.split(":")]
+            except Exception:
+                hh_h, hh_m = 23, 30
+
+            tag_night = f"{today_str}_night_{hh_h}_{hh_m}"
+            if (hour > hh_h or (hour == hh_h and minute >= hh_m)) and self.last_run_tag != tag_night:
+                log.warning("🚨 ĐÃ ĐẾN %02d:%02d ĐÊM! KÍCH HOẠT HÚ HÚ THÔNG MINH CỨU CHUỖI!", hh_h, hh_m)
                 self.run_night_emergency_huhu()
                 self.last_run_tag = tag_night
 
@@ -146,16 +193,20 @@ class StreakScheduler:
 
     def start(self, persist: bool = True):
         if persist:
-            save_scheduler_enabled(True)
+            cfg = load_scheduler_config()
+            cfg["enabled"] = True
+            save_scheduler_config(cfg)
         if not self.is_running:
             self.is_running = True
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
-            log.info("Đã bật tiến trình tự động hẹn giờ & Hú Hú đêm 23h30!")
+            log.info("Đã bật tiến trình tự động hẹn giờ giữ chuỗi!")
 
     def stop(self, persist: bool = True):
         if persist:
-            save_scheduler_enabled(False)
+            cfg = load_scheduler_config()
+            cfg["enabled"] = False
+            save_scheduler_config(cfg)
         self.is_running = False
         log.info("Đã dừng tiến trình tự động.")
 

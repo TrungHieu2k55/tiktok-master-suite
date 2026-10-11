@@ -104,20 +104,41 @@ with st.sidebar:
 
     st.write("")
 
-    # Nhóm Hẹn giờ tự động
-    st.markdown("#### 🌙 Vệ tinh ban đêm")
-    auto_sched = st.toggle("Tự động hú hú lúc 23:30", value=global_scheduler.is_running)
+    # Nhóm Hẹn giờ tự động linh hoạt (Custom Cron / Hours)
+    from src.streak.scheduler import load_scheduler_config, save_scheduler_config
+    sched_cfg = load_scheduler_config()
+    st.markdown("#### 🌙 Vệ tinh hẹn giờ & Hú Hú")
+    auto_sched = st.toggle("Kích hoạt chạy ngầm tự động", value=global_scheduler.is_running)
     if auto_sched != global_scheduler.is_running:
         if auto_sched:
             global_scheduler.start()
-            st.toast("Đã bật tự động hẹn giờ!", icon="🌙")
+            st.toast("Đã bật chạy ngầm tự động!", icon="🌙")
         else:
             global_scheduler.stop()
-            st.toast("Đã tắt tự động hẹn giờ!", icon="🛑")
+            st.toast("Đã tắt chạy ngầm!", icon="🛑")
         st.rerun()
 
+    pop_sched_cfg = st.popover("⚙️ Cài đặt khung giờ", width="stretch")
+    with pop_sched_cfg:
+        st.markdown("**Cấu Hình Khung Giờ Chạy Ngầm**")
+        st.caption("Tự động gửi giữ chuỗi ban ngày & kích hoạt Hú Hú báo động ban đêm.")
+        with st.form("custom_sched_form"):
+            h1 = st.number_input("Khung giờ gửi #1 (Sáng):", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[0] if len(sched_cfg.get("streak_hours", [8, 20])) > 0 else 8, step=1)
+            h2 = st.number_input("Khung giờ gửi #2 (Tối):", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[1] if len(sched_cfg.get("streak_hours", [8, 20])) > 1 else 20, step=1)
+            huhu_time_val = st.text_input("Giờ khẩn cấp HÚ HÚ (HH:MM):", value=sched_cfg.get("huhu_time", "23:30"), help="Ví dụ: 23:30 hoặc 23:45")
+            sub_sched = st.form_submit_button("💾 Lưu Cài Đặt Giờ", width="stretch", type="primary")
+            if sub_sched:
+                sched_cfg["streak_hours"] = sorted(list(set([int(h1), int(h2)])))
+                sched_cfg["huhu_time"] = huhu_time_val.strip() if huhu_time_val.strip() else "23:30"
+                save_scheduler_config(sched_cfg)
+                st.success("Đã cập nhật khung giờ thành công!")
+                time.sleep(0.5)
+                st.rerun()
+
     if global_scheduler.is_running:
-        st.success("🟢 Bot đang chạy ngầm (08h, 20h, 23h30)")
+        hrs_str = ", ".join([f"{h:02d}h" for h in sched_cfg.get("streak_hours", [8, 20])])
+        hh_str = sched_cfg.get("huhu_time", "23:30")
+        st.success(f"🟢 Đang canh gác: Gửi ({hrs_str}) • Hú Hú ({hh_str})")
     else:
         st.caption("⚪ Chế độ hẹn giờ đang tắt")
 
