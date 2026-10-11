@@ -511,12 +511,16 @@ class TikTokStreakBot:
 
     def _check_cloud_tiktok_chat_session(self, username: str, cookie_str: str) -> dict:
         """
-        DIRECT CLOUD SESSION HTTP VERIFIER:
-        Khi chạy trên Deploy (không có màn hình Chrome), dùng trực tiếp Cookie TikTok
-        để truy vấn gateway tin nhắn TikTok xác thực xem hôm nay bạn hoặc đối phương đã gửi tin chưa.
+        TIKTOK CLOUD SESSION DIRECT API ANALYZER (Từ sessionid / Cookie đã lưu):
+        1. Gọi trực tiếp API tin nhắn / IM conversation gateway của TikTok.
+        2. Quét cuộc trò chuyện với @username:
+           - Trích xuất thời điểm tin nhắn cuối cùng (last_message_time).
+           - Nếu tin nhắn cuối được gửi hôm nay -> Tự động xác định BẠN ĐÃ GỬI CHUỖI HÔM NAY!
+           - Nếu tin cuối từ đối phương -> Tự động xác định ĐỐI PHƯƠNG ĐÃ REP!
+        3. Tự động bóc tách streak badge từ TikTok JSON payload.
         """
-        if not cookie_str:
-            return {"active": False}
+        if not cookie_str or "sessionid" not in cookie_str:
+            return {"success": False, "reason": "Chưa có sessionid"}
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -525,21 +529,67 @@ class TikTokStreakBot:
             "Accept": "application/json, text/plain, */*",
         }
 
-        # Thử lấy profile và inbox status
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        # 1. Thử truy vấn Web IM Conversation Gateway
+        for ep in [
+            "https://www.tiktok.com/api/v1/web/im/conversation/list/",
+            "https://www.tiktok.com/api/im/conversation/list/",
+            "https://webcast.tiktok.com/webcast/im/fetch/",
+        ]:
+            try:
+                res = requests.get(ep, headers=headers, timeout=6)
+                if res.status_code == 200:
+                    raw_data = res.json()
+                    conv_list = (
+                        raw_data.get("data", {}).get("conversations")
+                        or raw_data.get("conversations")
+                        or raw_data.get("conversation_list")
+                        or []
+                    )
+                    for conv in conv_list:
+                        # Kiểm tra xem hội thoại này có phải với username không
+                        conv_str = json.dumps(conv, ensure_ascii=False).lower()
+                        if username.lower() in conv_str:
+                            last_msg = conv.get("last_message", {}) or conv.get("latest_message", {})
+                            create_time = int(last_msg.get("create_time", 0) or conv.get("updated_time", 0) or 0)
+                            if create_time > 1000000000000:
+                                create_time //= 1000  # Milliseconds to seconds
+
+                            is_today = False
+                            if create_time > 0:
+                                msg_date = datetime.fromtimestamp(create_time).strftime("%Y-%m-%d")
+                                is_today = (msg_date == today_str)
+
+                            streak_val = 0
+                            streak_raw = conv.get("streak", {}) or conv.get("streak_info", {})
+                            if isinstance(streak_raw, dict):
+                                streak_val = int(streak_raw.get("count", 0) or streak_raw.get("streak_count", 0) or 0)
+
+                            return {
+                                "success": True,
+                                "is_today": is_today,
+                                "friend_replied": conv.get("unread_count", 0) > 0,
+                                "streak_count": streak_val,
+                            }
+            except Exception as e_im:
+                log.debug("IM endpoint error %s: %s", ep, e_im)
+
+        # 2. Dự phòng: Kiểm tra qua Profile Metadata Endpoint
         try:
-            r = requests.get(
+            r_user = requests.get(
                 f"https://www.tiktok.com/node/share/user/@{username}",
                 headers=headers,
                 timeout=5,
             )
-            if r.status_code == 200:
-                data = r.json()
-                sec_uid = data.get("userInfo", {}).get("user", {}).get("secUid", "")
-                return {"active": True, "sec_uid": sec_uid}
+            if r_user.status_code == 200:
+                u_data = r_user.json()
+                if "userInfo" in u_data:
+                    return {"success": True, "account_verified": True}
         except Exception:
             pass
 
-        return {"active": True}
+        return {"success": False}
 
     def mark_manual_send(self, username: str) -> dict:
         """
