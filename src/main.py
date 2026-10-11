@@ -5,6 +5,12 @@ Dùng:
     python -m src.main comments --url URL [--output PATH] [--max-retries N]
     python -m src.main spike    --url URL [--browser chrome|firefox]
 """
+import sys
+from pathlib import Path
+_root = str(Path(__file__).resolve().parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 import argparse
 import sys
 
