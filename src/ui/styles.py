@@ -67,13 +67,15 @@ def inject_css():
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 4px 10px;
+        padding: 3px 10px;
         border-radius: 9999px;
-        font-size: 0.76rem;
+        font-size: 0.78rem;
         font-weight: 600;
-        white-space: nowrap;
+        white-space: normal !important;
+        word-break: break-word;
         text-align: center;
-        line-height: 1.2;
+        line-height: 1.25;
+        max-width: 100%;
     }
     .badge-success {
         background-color: rgba(34, 197, 94, 0.16);
@@ -118,10 +120,13 @@ def inject_css():
         line-height: 1.2;
     }
 
-    /* 7. Nút bấm không bị xuống dòng */
+    /* 7. Nút bấm không bị xuống dòng và padding vừa vặn */
     button[data-testid="stBaseButton-secondary"],
     button[data-testid="stBaseButton-primary"] {
         white-space: nowrap !important;
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+        font-size: 0.85rem !important;
     }
 
     /* 8. Spacing đồng đều giữa các khối */

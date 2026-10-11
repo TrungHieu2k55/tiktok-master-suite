@@ -368,16 +368,17 @@ with tabs[1]:
 
         st.write("")
 
-        # Hàng tiêu đề danh sách + Các nút hành động căn giữa dọc
-        col_act1, col_act_scan, col_act2, col_act_check_all, col_act_backup, col_act3 = st.columns([1.8, 1.4, 1.1, 1.1, 0.8, 0.6], vertical_alignment="center")
-        with col_act1:
-            st.markdown("<h3 style='margin:0; padding:0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
+        # Tiêu đề danh sách
+        st.markdown("<h3 style='margin:0 0 8px 0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
+
+        # Thanh nút hành động nhanh đồng đều và thoáng mắt
+        col_act_scan, col_act_check_all, col_act2, col_act_backup, col_act3 = st.columns([1.5, 1.3, 1.2, 1.0, 0.8], vertical_alignment="center")
         with col_act_scan:
             btn_scan_all = st.button("🔄 Quét Bạn Bè (API)", type="secondary", width="stretch", help="Tự động quét danh sách bạn bè và check chuỗi trực tiếp từ TikTok API")
-        with col_act2:
-            btn_run_all = st.button("⚡ Gửi tất cả", type="primary", width="stretch")
         with col_act_check_all:
             btn_check_all = st.button("🔍 Check tất cả", width="stretch", help="Quét và cập nhật trạng thái toàn bộ danh sách từ TikTok API")
+        with col_act2:
+            btn_run_all = st.button("⚡ Gửi tất cả", type="primary", width="stretch")
         with col_act_backup:
             pop_bak = st.popover("💾 Sao lưu", width="stretch")
             with pop_bak:
@@ -574,43 +575,17 @@ with tabs[1]:
                 time.sleep(1)
                 st.rerun()
 
-        # Hiển thị danh sách bạn bè chuẩn dạng bảng
+        # Hiển thị danh sách bạn bè dạng thẻ Card chuyên nghiệp (Responsive & Không tràn viền)
         st.write("")
         if targets:
-            # Hàng tiêu đề cột
-            th1, th2, th3, th4, th5 = st.columns([1.5, 1.6, 1.3, 1.8, 3.8], vertical_alignment="center")
-            with th1:
-                st.markdown("<div class='table-col-header'>Tài Khoản</div>", unsafe_allow_html=True)
-            with th2:
-                st.markdown("<div class='table-col-header'>Tin Nhắn</div>", unsafe_allow_html=True)
-            with th3:
-                st.markdown("<div class='table-col-header'>Lần Gửi Cuối</div>", unsafe_allow_html=True)
-            with th4:
-                st.markdown("<div class='table-col-header'>Trạng Thái</div>", unsafe_allow_html=True)
-            with th5:
-                st.markdown("<div class='table-col-header' style='text-align:right; padding-right:12px;'>Hành Động</div>", unsafe_allow_html=True)
-
             for idx, t in enumerate(targets):
                 with st.container(border=True):
-                    r1, r2, r3, r4, r_check, r5, r_manual, r6, r_rep, r7 = st.columns([1.5, 1.6, 1.3, 1.8, 0.7, 0.7, 0.7, 0.7, 0.6, 0.4], vertical_alignment="center")
+                    col_info, col_actions = st.columns([5.2, 4.8], vertical_alignment="center")
 
-                    # Cột 1: Username & Chuỗi
-                    with r1:
+                    # Phần 1: Thông tin người dùng & Trạng thái
+                    with col_info:
                         sc = t.get("streak_count", 0)
-                        flame = f" 🔥`{sc}`" if sc else ""
-                        st.markdown(f"**@{t['username']}**{flame}")
-
-                    # Cột 2: Tin nhắn
-                    with r2:
-                        msg_display = t.get("custom_msg") or "Mặc định (Icon 🔥)"
-                        st.caption(f"`{msg_display}`")
-
-                    # Cột 3: Lần gửi cuối
-                    with r3:
-                        st.caption(f"🕒 {t.get('last_sent', 'Chưa gửi')}")
-
-                    # Cột 4: Trạng thái chuẩn màu sắc
-                    with r4:
+                        flame = f" 🔥`{sc} ngày`" if sc else ""
                         status_text = t.get("status", "Ready")
                         if any(k in status_text for k in ["Thành công", "Đã Rep", "Đang giữ chuỗi", "Đang có chuỗi", "Đã kết nối", "hôm nay! ✅"]):
                             badge_cls = "badge-success"
@@ -618,81 +593,91 @@ with tabs[1]:
                             badge_cls = "badge-danger"
                         else:
                             badge_cls = "badge-warning"
-                        st.markdown(f'<span class="status-badge {badge_cls}">{status_text}</span>', unsafe_allow_html=True)
 
-                    # Nút Soi / Check Chuỗi Tự Động
-                    with r_check:
-                        if st.button("🔍 Check", key=f"check_{idx}", help="Kiểm tra đối phương đã gửi chuỗi lại chưa", width="stretch"):
-                            with st.spinner(f"Đang check chuỗi từ TikTok API với @{t['username']}..."):
-                                try:
-                                    check_res = bot.run_check_sync(t["username"])
-                                    if check_res.get("checked"):
-                                        t["status"] = check_res.get("status_desc")
-                                        if "streak_count" in check_res:
-                                            t["streak_count"] = check_res["streak_count"]
-                                        if check_res.get("friend_replied"):
-                                            st.toast(f"@{t['username']}: Đã rep lại!", icon="🎉")
-                                            st.success(f"@{t['username']}: {check_res.get('status_desc')}")
+                        st.markdown(
+                            f"<div style='display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;'>"
+                            f"<span style='font-size:1.05rem; font-weight:700;'>@{t['username']}</span>"
+                            f"{flame}"
+                            f"<span class='status-badge {badge_cls}'>{status_text}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+
+                        msg_display = t.get("custom_msg") or "Mặc định (Icon 🔥)"
+                        last_sent_val = t.get("last_sent", "Chưa gửi")
+                        st.caption(f"💬 Tin: `{msg_display}` • 🕒 Lần gửi cuối: `{last_sent_val}`")
+
+                    # Phần 2: 5 nút hành động rộng rãi, không bao giờ bị cắt chữ
+                    with col_actions:
+                        b_chk, b_snd, b_man, b_hu, b_del = st.columns([1.1, 1.0, 1.2, 1.2, 0.5], vertical_alignment="center")
+                        with b_chk:
+                            if st.button("🔍 Check", key=f"check_{idx}", help="Kiểm tra chuỗi từ TikTok API", width="stretch"):
+                                with st.spinner(f"Đang check chuỗi từ TikTok API với @{t['username']}..."):
+                                    try:
+                                        check_res = bot.run_check_sync(t["username"])
+                                        if check_res.get("checked"):
+                                            t["status"] = check_res.get("status_desc")
+                                            if "streak_count" in check_res:
+                                                t["streak_count"] = check_res["streak_count"]
+                                            if check_res.get("friend_replied"):
+                                                st.toast(f"@{t['username']}: Đã rep lại!", icon="🎉")
+                                                st.success(f"@{t['username']}: {check_res.get('status_desc')}")
+                                            else:
+                                                st.info(f"@{t['username']}: {check_res.get('status_desc')}")
                                         else:
-                                            st.info(f"@{t['username']}: {check_res.get('status_desc')}")
+                                            st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
+                                        bot.save_targets(targets)
+                                        time.sleep(1)
+                                        st.rerun()
+                                    except Exception as err:
+                                        st.error(f"⚠️ {err}")
+
+                        with b_snd:
+                            if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch", help="Gửi tự động qua bot"):
+                                with st.spinner(f"Đang gửi tới @{t['username']}..."):
+                                    ok = bot.run_send_sync(t["username"], t.get("custom_msg"))
+                                    if ok:
+                                        t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                        t["status"] = "Thành công 🔥"
+                                        bot.save_targets(targets)
+                                        st.toast(f"Đã gửi thành công tới @{t['username']}!", icon="🔥")
+                                        st.rerun()
                                     else:
-                                        st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
+                                        st.error("Gửi thất bại!")
+
+                        with b_man:
+                            if st.button("✋ Đã gửi", key=f"manual_{idx}", help="Bấm vào đây nếu bạn đã gửi chuỗi bằng tay trên điện thoại", width="stretch"):
+                                res_m = bot.mark_manual_send(t["username"])
+                                if res_m.get("success"):
+                                    st.toast(f"Đã ghi nhận bạn gửi chuỗi tới @{t['username']}!", icon="🔥")
+                                    st.success(f"@{t['username']}: {res_m.get('status_desc')}")
+                                    time.sleep(0.5)
+                                    st.rerun()
+
+                        with b_hu:
+                            if st.button("📢 HÚ HÚ", key=f"huhu_{idx}", width="stretch", help="Spam nhắc nhở giữ chuỗi"):
+                                custom_spams = t.get("spam_messages")
+                                with st.spinner(f"🚨 Đang HÚ HÚ @{t['username']}..."):
+                                    result = bot.run_spam_huhu_sync(t["username"], custom_spam_list=custom_spams, max_rounds=8)
+                                    sent_num = result.get("sent", 0)
+                                    replied = result.get("replied", False)
+                                    if replied:
+                                        t["status"] = f"Đã Rep sau {sent_num} tin! 🎉"
+                                        st.balloons()
+                                        st.success(f"🎉 Cứu chuỗi thành công! @{t['username']} đã rep sau {sent_num} tin!")
+                                    else:
+                                        t["status"] = f"Đã Hú ({sent_num} tin) 📢"
+                                        st.info(f"Đã gửi {sent_num} tin hú hú tới @{t['username']}.")
                                     bot.save_targets(targets)
                                     time.sleep(1)
                                     st.rerun()
-                                except Exception as err:
-                                    st.error(f"⚠️ {err}")
 
-                    # Cột 5: Nút Gửi tự động qua bot
-                    with r5:
-                        if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch", help="Gửi tự động qua bot"):
-                            with st.spinner(f"Đang gửi tới @{t['username']}..."):
-                                ok = bot.run_send_sync(t["username"], t.get("custom_msg"))
-                                if ok:
-                                    t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    t["status"] = "Thành công 🔥"
-                                    bot.save_targets(targets)
-                                    st.toast(f"Đã gửi thành công tới @{t['username']}!", icon="🔥")
-                                    st.rerun()
-                                else:
-                                    st.error("Gửi thất bại!")
-
-                    # Cột 5.5: Nút Ghi nhận đã gửi bằng tay trên điện thoại
-                    with r_manual:
-                        if st.button("✋ Đã gửi", key=f"manual_{idx}", help="Bấm vào đây nếu bạn đã gửi chuỗi bằng tay trên điện thoại", width="stretch"):
-                            res_m = bot.mark_manual_send(t["username"])
-                            if res_m.get("success"):
-                                st.toast(f"Đã ghi nhận bạn gửi chuỗi tới @{t['username']}!", icon="🔥")
-                                st.success(f"@{t['username']}: {res_m.get('status_desc')}")
-                                time.sleep(0.5)
-                                st.rerun()
-
-                    # Cột 6: Nút HÚ HÚ
-                    with r6:
-                        if st.button("📢 HÚ HÚ", key=f"huhu_{idx}", width="stretch"):
-                            custom_spams = t.get("spam_messages")
-                            with st.spinner(f"🚨 Đang HÚ HÚ @{t['username']}..."):
-                                result = bot.run_spam_huhu_sync(t["username"], custom_spam_list=custom_spams, max_rounds=8)
-                                sent_num = result.get("sent", 0)
-                                replied = result.get("replied", False)
-                                if replied:
-                                    t["status"] = f"Đã Rep sau {sent_num} tin! 🎉"
-                                    st.balloons()
-                                    st.success(f"🎉 Cứu chuỗi thành công! @{t['username']} đã rep sau {sent_num} tin!")
-                                else:
-                                    t["status"] = f"Đã Hú ({sent_num} tin) 📢"
-                                    st.info(f"Đã gửi {sent_num} tin hú hú tới @{t['username']}.")
+                        with b_del:
+                            if st.button("✕", key=f"del_{idx}", help="Xoá bạn này khỏi danh sách", width="stretch"):
+                                targets.pop(idx)
                                 bot.save_targets(targets)
-                                time.sleep(1)
+                                st.toast(f"Đã xoá @{t['username']}", icon="🗑️")
                                 st.rerun()
-
-                    # Cột 7: Nút Xoá dạng icon nhỏ
-                    with r7:
-                        if st.button("✕", key=f"del_{idx}", help="Xoá bạn này khỏi danh sách", width="stretch"):
-                            targets.pop(idx)
-                            bot.save_targets(targets)
-                            st.toast(f"Đã xoá @{t['username']}", icon="🗑️")
-                            st.rerun()
         else:
             st.info("👋 Danh sách hiện đang trống. Hãy thêm bạn bè ở khung phía trên để bắt đầu giữ chuỗi!")
 
