@@ -304,15 +304,43 @@ with tabs[1]:
 
         st.write("")
 
-        # Hàng tiêu đề danh sách + Hai nút hành động căn giữa dọc
-        col_act1, col_act2, col_act3 = st.columns([3, 1.6, 1.2], vertical_alignment="center")
+        # Hàng tiêu đề danh sách + Các nút hành động căn giữa dọc
+        col_act1, col_act2, col_act_backup, col_act3 = st.columns([2.6, 1.4, 1.0, 0.8], vertical_alignment="center")
         with col_act1:
             st.markdown("<h3 style='margin:0; padding:0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
         with col_act2:
-            btn_run_all = st.button("⚡ Gửi giữ chuỗi tất cả", type="primary", width="stretch")
+            btn_run_all = st.button("⚡ Gửi tất cả", type="primary", width="stretch")
+        with col_act_backup:
+            pop_bak = st.popover("💾 Sao lưu", width="stretch")
+            with pop_bak:
+                st.markdown("**Sao Lưu & Khôi Phục Dữ Liệu**")
+                st.caption("Dùng khi deploy lại hoặc tải về máy cá nhân.")
+                json_data = json.dumps(targets, indent=2, ensure_ascii=False)
+                st.download_button(
+                    label="📥 Tải file Backup (.json)",
+                    data=json_data,
+                    file_name="streak_targets_backup.json",
+                    mime="application/json",
+                    width="stretch",
+                )
+                st.divider()
+                st.markdown("**Khôi phục từ file Backup:**")
+                up_f = st.file_uploader("Chọn file json backup:", type=["json"], label_visibility="collapsed")
+                if up_f is not None:
+                    try:
+                        restored = json.load(up_f)
+                        if isinstance(restored, list):
+                            if st.button("Nạp danh sách này", type="primary", width="stretch"):
+                                bot.save_targets(restored)
+                                st.success("Khôi phục thành công!")
+                                st.rerun()
+                        else:
+                            st.error("File JSON không hợp lệ.")
+                    except Exception as ef:
+                        st.error(f"Lỗi đọc file: {ef}")
         with col_act3:
             # Nút phụ Xoá hết có popover xác nhận an toàn
-            pop_clear = st.popover("🗑️ Xoá hết", width="stretch")
+            pop_clear = st.popover("🗑️ Xoá", width="stretch")
             with pop_clear:
                 st.markdown("**Xác nhận xoá toàn bộ?**")
                 st.caption("Thao tác này sẽ xoá sạch danh sách bạn bè hiện tại.")

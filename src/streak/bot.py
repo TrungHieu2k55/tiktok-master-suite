@@ -77,7 +77,19 @@ class TikTokStreakBot:
     def load_session_cookie_string(self) -> str:
         cookie_file = SESSION_DIR / "session_cookie.txt"
         if cookie_file.exists():
-            return cookie_file.read_text(encoding="utf-8").strip()
+            val = cookie_file.read_text(encoding="utf-8").strip()
+            if val:
+                return val
+        # Hỗ trợ khôi phục tự động từ Streamlit Secrets khi deploy lên Cloud
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                if "tiktok" in st.secrets and "cookie" in st.secrets["tiktok"]:
+                    return str(st.secrets["tiktok"]["cookie"]).strip()
+                if "tiktok_cookie" in st.secrets:
+                    return str(st.secrets["tiktok_cookie"]).strip()
+        except Exception:
+            pass
         return ""
 
     def _get_driver(self, headless: bool = False):
@@ -167,14 +179,26 @@ class TikTokStreakBot:
         return driver
 
     def load_targets(self) -> list[dict]:
-        if not self.config_path.exists():
-            return []
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and len(data) > 0:
+                        return data
+            except Exception as e:
+                log.error("Lỗi đọc danh sách: %s", e)
+        # Hỗ trợ khôi phục danh sách mục tiêu từ Streamlit Secrets khi deploy lại
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            log.error("Lỗi đọc danh sách: %s", e)
-            return []
+            import streamlit as st
+            if hasattr(st, "secrets") and "streak_targets" in st.secrets:
+                val = st.secrets["streak_targets"]
+                if isinstance(val, str):
+                    return json.loads(val)
+                elif isinstance(val, list):
+                    return list(val)
+        except Exception:
+            pass
+        return []
 
     def save_targets(self, targets: list[dict]) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
