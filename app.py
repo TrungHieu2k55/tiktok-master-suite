@@ -226,7 +226,7 @@ with st.sidebar:
             if not is_cloud_env:
                 st.divider()
                 st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")
-                if st.button("⚡ Tự Động Lấy Cookie từ Chrome", width="stretch"):
+                if st.button("⚡ Tự Động Lấy Cookie từ Chrome", key="btn_auto_extract_cookie_chrome", width="stretch"):
                     with st.spinner("Đang trích xuất phiên từ Chrome..."):
                         c_res = bot.auto_sync_local_cookies()
                         if c_res:
@@ -238,17 +238,7 @@ with st.sidebar:
             else:
                 st.caption("💡 *Đang chạy trên Streamlit Cloud: Vui lòng dán sessionid vào ô trên rồi bấm 'Lưu Phiên Mới'.*")
 
-            st.divider()
-            st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")
-            if st.button("⚡ Tự Động Lấy Cookie từ Chrome", width="stretch"):
-                with st.spinner("Đang trích xuất phiên từ Chrome..."):
-                    c_res = bot.auto_sync_local_cookies()
-                    if c_res:
-                        st.success("🎉 Đã lấy Cookie thành công!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.warning("Chưa tìm thấy phiên. Hãy bấm 'Đăng nhập' trước!")
+
 
     st.write("")
     st.markdown("#### ☁️ Supabase Cloud DB")
