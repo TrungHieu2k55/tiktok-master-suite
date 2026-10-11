@@ -1,4 +1,5 @@
-﻿"""
+from src.storage.supabase_client import supabase_get, supabase_set
+"""
 ui/auth.py — Hệ thống Xác thực & Phân quyền Người dùng (RBAC) cho TikTok Master Suite.
 Bảo mật nâng cao:
 1. Chống Brute-force (khóa tạm nếu nhập sai quá 5 lần).
@@ -27,8 +28,9 @@ def _hash_pw(password: str) -> str:
 
 
 def update_admin_password(new_password: str) -> bool:
-    """Đổi mật khẩu admin và lưu bền vững vào data/auth_config.json."""
+    """Đổi mật khẩu admin và lưu bền vững vào data/auth_config.json và Supabase."""
     try:
+        pw_hash = _hash_pw(new_password)
         AUTH_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {}
         if AUTH_CONFIG_FILE.exists():
@@ -36,8 +38,12 @@ def update_admin_password(new_password: str) -> bool:
                 data = json.loads(AUTH_CONFIG_FILE.read_text(encoding="utf-8"))
             except Exception:
                 data = {}
-        data["admin_password_hash"] = _hash_pw(new_password)
+        data["admin_password_hash"] = pw_hash
         AUTH_CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            supabase_set("admin_password_hash", pw_hash)
+        except Exception:
+            pass
         return True
     except Exception:
         return False
@@ -45,6 +51,14 @@ def update_admin_password(new_password: str) -> bool:
 
 def get_admin_password_hash() -> str:
     """Lấy hash mật khẩu Admin theo thứ tự ưu tiên."""
+    # 0. Kiểm tra Supabase Cloud Database (Bền vững sau redeploy)
+    try:
+        supa_hash = supabase_get("admin_password_hash")
+        if supa_hash and isinstance(supa_hash, str) and len(supa_hash) == 64:
+            return supa_hash
+    except Exception:
+        pass
+
     # 1. Kiểm tra file cấu hình lưu trên máy
     if AUTH_CONFIG_FILE.exists():
         try:

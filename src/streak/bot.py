@@ -19,6 +19,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
 from src.streak.config import DEFAULT_MESSAGES, HU_HU_SPAM_MESSAGES, SESSION_DIR, STREAK_CONFIG_FILE
+from src.storage.supabase_client import supabase_get, supabase_set
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -73,8 +74,22 @@ class TikTokStreakBot:
         cookie_file = SESSION_DIR / "session_cookie.txt"
         cookie_file.parent.mkdir(parents=True, exist_ok=True)
         cookie_file.write_text(raw, encoding="utf-8")
+        # Đồng bộ tự động lên Supabase Cloud Database nếu có kết nối
+        try:
+            supabase_set("tiktok_session_cookie", raw)
+        except Exception:
+            pass
 
     def load_session_cookie_string(self) -> str:
+        # 1. Thử lấy từ Supabase Cloud Database (Ưu tiên cao nhất khi chạy trên Cloud)
+        try:
+            supa_cookie = supabase_get("tiktok_session_cookie")
+            if supa_cookie and isinstance(supa_cookie, str) and supa_cookie.strip():
+                return supa_cookie.strip()
+        except Exception:
+            pass
+
+        # 2. Đọc từ file session local
         cookie_file = SESSION_DIR / "session_cookie.txt"
         if cookie_file.exists():
             val = cookie_file.read_text(encoding="utf-8").strip()
@@ -179,6 +194,15 @@ class TikTokStreakBot:
         return driver
 
     def load_targets(self) -> list[dict]:
+        # 1. Ưu tiên đọc từ Supabase Cloud Database (Tự động khôi phục dữ liệu sau khi deploy)
+        try:
+            supa_data = supabase_get("streak_targets")
+            if supa_data and isinstance(supa_data, list) and len(supa_data) > 0:
+                return supa_data
+        except Exception:
+            pass
+
+        # 2. Đọc từ file cấu hình local
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
@@ -204,6 +228,11 @@ class TikTokStreakBot:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(targets, f, ensure_ascii=False, indent=2)
+        # Tự động đồng bộ lên Supabase Cloud Database
+        try:
+            supabase_set("streak_targets", targets)
+        except Exception:
+            pass
 
     def _update_target_on_send(self, username: str, timestamp_str: str) -> None:
         targets = self.load_targets()

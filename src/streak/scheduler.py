@@ -1,3 +1,4 @@
+from src.storage.supabase_client import supabase_get, supabase_set
 """
 streak/scheduler.py — Tiến trình chạy ngầm hẹn giờ giữ chuỗi & HÚ HÚ THÔNG MINH lúc 23h30.
 Tự động dùng mẫu spam riêng của từng người nếu có.
@@ -18,6 +19,12 @@ log = get_logger(__name__)
 
 def load_scheduler_enabled() -> bool:
     try:
+        supa_val = supabase_get("auto_night_guard")
+        if supa_val is not None:
+            return bool(supa_val)
+    except Exception:
+        pass
+    try:
         if APP_SETTINGS_FILE.exists():
             data = json.loads(APP_SETTINGS_FILE.read_text(encoding="utf-8"))
             return bool(data.get("auto_night_guard", False))
@@ -37,6 +44,10 @@ def save_scheduler_enabled(enabled: bool):
                 data = {}
         data["auto_night_guard"] = bool(enabled)
         APP_SETTINGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            supabase_set("auto_night_guard", bool(enabled))
+        except Exception:
+            pass
     except Exception as e:
         log.warning("Lỗi ghi app_settings: %s", e)
 

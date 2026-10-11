@@ -175,6 +175,49 @@ with st.sidebar:
                     else:
                         st.warning("Chưa tìm thấy phiên. Hãy bấm 'Đăng nhập' trước!")
 
+    st.write("")
+    st.markdown("#### ☁️ Supabase Cloud DB")
+    from src.storage.supabase_client import (
+        get_supabase_config,
+        save_supabase_config,
+        is_supabase_configured,
+        test_supabase_connection,
+    )
+    supa_ok = is_supabase_configured()
+    supa_badge = "🟢 Đã kết nối" if supa_ok else "⚪ Chưa cấu hình"
+    pop_supa = st.popover(f"☁️ Supabase ({supa_badge})", width="stretch")
+    with pop_supa:
+        st.markdown("**Kết Nối Supabase Database**")
+        st.caption("Lưu trữ danh sách chuỗi, cookie và mật khẩu vĩnh viễn trên Cloud.")
+        cur_u, cur_k = get_supabase_config()
+        with st.form("supa_form"):
+            new_u = st.text_input("Project URL:", value=cur_u, placeholder="https://xxx.supabase.co")
+            new_k = st.text_input("Anon / Public Key:", value=cur_k, type="password", placeholder="eyJhbGciOi...")
+            sub_supa = st.form_submit_button("💾 Lưu Cấu Hình", width="stretch", type="primary")
+            if sub_supa:
+                save_supabase_config(new_u, new_k)
+                st.success("Đã lưu thông tin Supabase!")
+                time.sleep(0.5)
+                st.rerun()
+
+        if is_supabase_configured():
+            if st.button("🔌 Kiểm tra kết nối", width="stretch"):
+                with st.spinner("Đang ping Supabase..."):
+                    ok_conn, msg_conn = test_supabase_connection()
+                    if ok_conn:
+                        st.success(msg_conn)
+                    else:
+                        st.warning(msg_conn)
+
+        with st.expander("📋 Lệnh SQL tạo bảng (Chỉ cần chạy 1 lần)"):
+            st.code("""create table if not exists tiktok_suite_storage (
+    key text primary key,
+    value jsonb,
+    updated_at timestamp with time zone default now()
+);
+alter table tiktok_suite_storage enable row level security;
+create policy "Allow all operations for anon" on tiktok_suite_storage for all using (true) with check (true);""", language="sql")
+
 
 # ---------------------------------------------------------------------------
 # TIÊU ĐỀ CHÍNH: GỌN GÀNG, KHÔNG ĐẨY SÂU NỘI DUNG
