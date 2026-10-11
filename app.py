@@ -28,7 +28,7 @@ from src.streak.bot import TikTokStreakBot
 from src.streak.config import DEFAULT_MESSAGES, HU_HU_SPAM_MESSAGES, SESSION_DIR, STREAK_CONFIG_FILE
 from src.streak.scheduler import global_scheduler
 from src.ui.styles import inject_css
-from src.ui.auth import render_login_screen, is_authenticated, is_admin, get_current_user, logout
+from src.ui.auth import render_login_screen, is_authenticated, is_admin, get_current_user, logout, update_admin_password
 from src.utils.validators import extract_video_id, is_valid_video_url
 
 # 1. Cấu hình trang với layout wide
@@ -75,8 +75,32 @@ with st.sidebar:
         role_badge = "badge-success" if is_admin() else "badge-warning"
         st.markdown(f'<span class="status-badge {role_badge}">Vai trò: {user_role.upper()}</span>', unsafe_allow_html=True)
         st.write("")
-        if st.button("🚪 Đăng xuất", width="stretch", type="secondary"):
-            logout()
+        c_so1, c_so2 = st.columns([1, 1])
+        with c_so1:
+            if st.button("🚪 Đăng xuất", width="stretch", type="secondary"):
+                logout()
+        with c_so2:
+            if is_admin():
+                pop_pw = st.popover("🔑 Đổi pass", width="stretch")
+                with pop_pw:
+                    st.markdown("**Đổi mật khẩu Admin**")
+                    with st.form("change_admin_pw_form", clear_on_submit=True):
+                        new_pw = st.text_input("Mật khẩu mới:", type="password")
+                        confirm_pw = st.text_input("Nhập lại mật khẩu:", type="password")
+                        sub_pw = st.form_submit_button("Lưu mật khẩu", type="primary", width="stretch")
+                        if sub_pw:
+                            if not new_pw or len(new_pw) < 6:
+                                st.error("Mật khẩu phải từ 6 ký tự trở lên!")
+                            elif new_pw != confirm_pw:
+                                st.error("Mật khẩu xác nhận không khớp!")
+                            else:
+                                if update_admin_password(new_pw):
+                                    st.success("Đổi mật khẩu thành công!")
+                                    st.toast("Đã lưu mật khẩu Admin mới!", icon="🔑")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Lỗi khi lưu mật khẩu mới!")
 
     st.write("")
 

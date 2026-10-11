@@ -2,16 +2,20 @@
 ui/auth.py — Hệ thống Xác thực & Phân quyền Người dùng (RBAC) cho TikTok Master Suite.
 Bảo mật nâng cao:
 1. Chống Brute-force (khóa tạm nếu nhập sai quá 5 lần).
-2. Hỗ trợ cấu hình mật khẩu từ Streamlit Secrets, .env hoặc đổi mật khẩu trực tiếp.
-3. Phân quyền chặt chẽ:
-   - admin: Toàn quyền truy cập.
-   - guest: Chỉ tra cứu API & Phân tích, KHÔNG xem hay can thiệp vào tài khoản giữ chuỗi của Admin.
+2. Hỗ trợ cấu hình mật khẩu từ:
+   - File lưu trữ riêng: data/auth_config.json (cho phép Admin tự đổi mật khẩu ngay trên UI)
+   - Streamlit Secrets: st.secrets["passwords"]["admin"]
+   - Biến môi trường: ADMIN_PASSWORD trong file .env
+   - Mặc định: admin123
 """
 import hashlib
+import json
 import os
 import time
+from pathlib import Path
 import streamlit as st
 
+AUTH_CONFIG_FILE = Path("data/auth_config.json")
 MAX_ATTEMPTS = 5
 LOCK_SECONDS = 60
 
@@ -22,29 +26,68 @@ def _hash_pw(password: str) -> str:
     return hashlib.sha256((password.strip() + salt).encode("utf-8")).hexdigest()
 
 
-def _get_configured_password(user: str, default_val: str) -> str:
-    """Lấy mật khẩu từ st.secrets hoặc os.environ hoặc giá trị mặc định."""
+def update_admin_password(new_password: str) -> bool:
+    """Đổi mật khẩu admin và lưu bền vững vào data/auth_config.json."""
+    try:
+        AUTH_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if AUTH_CONFIG_FILE.exists():
+            try:
+                data = json.loads(AUTH_CONFIG_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["admin_password_hash"] = _hash_pw(new_password)
+        AUTH_CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def get_admin_password_hash() -> str:
+    """Lấy hash mật khẩu Admin theo thứ tự ưu tiên."""
+    # 1. Kiểm tra file cấu hình lưu trên máy
+    if AUTH_CONFIG_FILE.exists():
+        try:
+            data = json.loads(AUTH_CONFIG_FILE.read_text(encoding="utf-8"))
+            if "admin_password_hash" in data:
+                return data["admin_password_hash"]
+        except Exception:
+            pass
+
+    # 2. Kiểm tra Streamlit Secrets
     try:
         if hasattr(st, "secrets") and "passwords" in st.secrets:
-            if user in st.secrets["passwords"]:
-                return str(st.secrets["passwords"][user])
+            if "admin" in st.secrets["passwords"]:
+                return _hash_pw(str(st.secrets["passwords"]["admin"]))
     except Exception:
         pass
-    env_key = f"{user.upper()}_PASSWORD"
-    return os.getenv(env_key, default_val)
+
+    # 3. Kiểm tra biến môi trường .env
+    env_pw = os.getenv("ADMIN_PASSWORD", "admin123")
+    return _hash_pw(env_pw)
+
+
+def get_guest_password_hash() -> str:
+    """Lấy hash mật khẩu Guest."""
+    try:
+        if hasattr(st, "secrets") and "passwords" in st.secrets:
+            if "guest" in st.secrets["passwords"]:
+                return _hash_pw(str(st.secrets["passwords"]["guest"]))
+    except Exception:
+        pass
+    env_pw = os.getenv("GUEST_PASSWORD", "guest123")
+    return _hash_pw(env_pw)
 
 
 def get_users_store() -> dict:
-    admin_pw = _get_configured_password("admin", "admin123")
-    guest_pw = _get_configured_password("guest", "guest123")
     return {
         "admin": {
-            "password_hash": _hash_pw(admin_pw),
+            "password_hash": get_admin_password_hash(),
             "role": "admin",
             "name": "Quản Trị Viên (Admin)",
         },
         "guest": {
-            "password_hash": _hash_pw(guest_pw),
+            "password_hash": get_guest_password_hash(),
             "role": "guest",
             "name": "Khách Truy Cập (Guest)",
         },
@@ -136,8 +179,8 @@ def render_login_screen():
 
             st.markdown("""
             <div style="margin-top: 1rem; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 8px; font-size: 0.8rem; color: #64748B;">
-                <b>🔑 Thông tin tài khoản mặc định:</b><br/>
-                • <b>admin</b> / <code>admin123</code>: Toàn quyền quản trị & giữ chuỗi cá nhân.<br/>
-                • <b>guest</b> / <code>guest123</code>: Tra cứu API, phân tích dữ liệu (khóa tab giữ chuỗi).
+                <b>🔑 Lưu ý đăng nhập:</b><br/>
+                • Tài khoản <b>admin</b> có toàn quyền quản trị & giữ chuỗi cá nhân.<br/>
+                • Tài khoản <b>guest</b> (mật khẩu: <code>guest123</code>) chỉ tra cứu API và phân tích dữ liệu.
             </div>
             """, unsafe_allow_html=True)
