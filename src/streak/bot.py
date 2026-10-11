@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import re
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -70,7 +71,11 @@ class TikTokStreakBot:
     def save_session_cookie_string(self, cookie_str: str) -> None:
         raw = cookie_str.strip()
         if raw and "=" not in raw:
-            raw = f"sessionid={raw};"
+            raw = f"sessionid={raw}; sessionid_ss={raw};"
+        elif raw and "sessionid=" in raw and "sessionid_ss=" not in raw:
+            m = re.search(r'sessionid=([^;]+)', raw)
+            if m:
+                raw += f" sessionid_ss={m.group(1).strip()};"
         cookie_file = SESSION_DIR / "session_cookie.txt"
         cookie_file.parent.mkdir(parents=True, exist_ok=True)
         cookie_file.write_text(raw, encoding="utf-8")
@@ -687,17 +692,26 @@ class TikTokStreakBot:
             except Exception as e_im:
                 log.debug("IM endpoint error %s: %s", ep, e_im)
 
-        # 2. Dự phòng: Kiểm tra qua Profile Metadata Endpoint
+        # 2. Dự phòng: Kiểm tra qua Profile SSR
         try:
             r_user = requests.get(
-                f"https://www.tiktok.com/node/share/user/@{clean_user}",
+                f"https://www.tiktok.com/@{clean_user}",
                 headers=headers,
                 timeout=5,
             )
             if r_user.status_code == 200:
-                u_data = r_user.json()
-                if "userInfo" in u_data:
-                    return {"success": True, "found": False, "account_verified": True}
+                m = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', r_user.text)
+                if m:
+                    d = json.loads(m.group(1))
+                    u_info = d.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("user", {})
+                    if u_info:
+                        return {
+                            "success": True,
+                            "found": True,
+                            "nickname": u_info.get("nickname"),
+                            "is_friend": (u_info.get("relation", 0) == 2),
+                            "account_verified": True,
+                        }
         except Exception:
             pass
 
@@ -707,16 +721,15 @@ class TikTokStreakBot:
         """
         TỰ ĐỘNG QUÉT BẠN BÈ VÀ CHECK CHUỖI TỪ TIKTOK API:
         1. Kiểm tra tình trạng sống/chết (Health Check) của phiên Cookie trước khi quét.
-        2. Gọi trực tiếp API cuộc trò chuyện / tin nhắn / bạn bè của TikTok bằng Cookie / Session.
-        3. Tự động bóc tách toàn bộ danh sách bạn bè, số chuỗi streak hiện tại, trạng thái đã gửi/rep hôm nay.
-        4. Tự động hợp nhất vào danh sách mục tiêu (giữ nguyên cài đặt tin nhắn riêng) và đồng bộ Cloud.
+        2. Xác thực và trích xuất danh sách bạn bè, nickname chính thức, trạng thái bạn bè (Relation: 2), và chuỗi streak qua TikTok API.
+        3. Tự động hợp nhất vào danh sách mục tiêu và đồng bộ Cloud.
         """
         cookie_str = self.load_session_cookie_string()
         if not cookie_str:
             return {
                 "success": False,
                 "total_scanned": 0,
-                "reason": "Chưa có Cookie / Session ID của TikTok. Vui lòng dán cookie hoặc bấm 'Tự động lấy cookie' trước.",
+                "reason": "Chưa có Cookie / sessionid của TikTok. Vui lòng nạp ở cột bên trái.",
             }
 
         health = self.check_session_health()
@@ -727,164 +740,91 @@ class TikTokStreakBot:
                 "reason": "⚠️ Phiên đăng nhập TikTok của bạn ĐÃ HẾT HẠN (Session Expired)! TikTok đã thu hồi token này. Vui lòng lấy cookie mới trên TikTok Web (F12 -> Application -> Cookies -> sessionid) rồi dán vào ô 'Phiên TikTok' ở cột bên trái.",
             }
 
-        scanned_dict = {}
+        targets = self.load_targets()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.tiktok.com/",
+            "Cookie": cookie_str,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         today_str = datetime.now().strftime("%Y-%m-%d")
-
-        # CHIẾN LƯỢC 1: Quét trực tiếp qua TikTok IM Gateway API (Nhanh & Cloud-native)
-        if cookie_str and "sessionid" in cookie_str:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Referer": "https://www.tiktok.com/messages",
-                "Cookie": cookie_str,
-                "Accept": "application/json, text/plain, */*",
-            }
-            endpoints = [
-                "https://www.tiktok.com/api/v1/web/im/conversation/list/?cursor=0&count=50",
-                "https://www.tiktok.com/api/im/conversation/list/?cursor=0&count=50",
-                "https://www.tiktok.com/api/v1/web/im/user/friends/?count=50",
-                "https://www.tiktok.com/api/v1/im/user/friends/?count=50",
-                "https://www.tiktok.com/api/user/following/list/?count=50",
-                "https://webcast.tiktok.com/webcast/im/fetch/",
-            ]
-            for ep in endpoints:
-                try:
-                    res = requests.get(ep, headers=headers, timeout=8)
-                    if res.status_code == 200:
-                        raw_data = res.json()
-                        conv_list = (
-                            raw_data.get("data", {}).get("conversations")
-                            or raw_data.get("conversations")
-                            or raw_data.get("conversation_list")
-                            or raw_data.get("data", {}).get("user_list")
-                            or raw_data.get("user_list")
-                            or raw_data.get("data", {}).get("users")
-                            or []
-                        )
-                        for conv in conv_list:
-                            details = self._extract_conv_details(conv)
-                            uname = details.get("username", "").strip()
-                            if uname and uname.lower() not in ["tiktok", "system", "notification"]:
-                                scanned_dict[uname.lower()] = details
-                except Exception as e_scan:
-                    log.debug("Lỗi quét endpoint %s: %s", ep, e_scan)
-
-        # CHIẾN LƯỢC 2: Fallback qua Selenium nếu API trực tiếp chưa có dữ liệu và có Chrome
-        if not scanned_dict:
-            driver = None
-            try:
-                driver = self._get_driver(headless=self.headless)
-            except Exception:
-                driver = None
-
-            if driver is not None:
-                try:
-                    driver.get("https://www.tiktok.com/messages")
-                    time.sleep(4)
-                    conv_items = driver.find_elements(
-                        By.CSS_SELECTOR,
-                        "[data-e2e='conversation-item'], div[class*='ConversationItem'], div[class*='ChatList'] li, div[class*='ChatList'] div[role='button']"
-                    )
-                    for item in conv_items:
-                        try:
-                            txt = item.text.strip()
-                            if not txt:
-                                continue
-                            lines = [ln.strip() for ln in txt.split("\n") if ln.strip()]
-                            if not lines:
-                                continue
-                            cand_name = lines[0].replace("@", "")
-                            if any(k in cand_name.lower() for k in ["tiktok", "thông báo", "tin nhắn hệ thống"]):
-                                continue
-
-                            has_st, st_cnt = self._extract_streak_from_text_or_elem(item)
-                            scanned_dict[cand_name.lower()] = {
-                                "username": cand_name,
-                                "streak_count": st_cnt,
-                                "is_today": False,
-                                "friend_replied": bool(item.find_elements(By.CSS_SELECTOR, "[class*='unread'], [class*='badge'], [class*='Dot']")),
-                                "create_time": 0,
-                            }
-                        except Exception:
-                            continue
-                except Exception as e_sel:
-                    log.warning("Selenium quét danh sách chat gặp sự cố: %s", e_sel)
-                finally:
-                    try:
-                        driver.quit()
-                    except Exception:
-                        pass
-
-        if not scanned_dict:
-            if not cookie_str:
-                return {
-                    "success": False,
-                    "total_scanned": 0,
-                    "reason": "Chưa có Cookie / Session ID của TikTok. Vui lòng dán cookie hoặc bấm 'Tự động lấy cookie' trước.",
-                }
-            return {
-                "success": False,
-                "total_scanned": 0,
-                "reason": "Không tìm thấy cuộc trò chuyện nào trên TikTok API. Vui lòng kiểm tra lại phiên đăng nhập.",
-            }
-
-        # CHIẾN LƯỢC 3: Hợp nhất (Merge) thông minh vào danh sách mục tiêu
-        targets = self.load_targets()
-        target_map = {t["username"].lower(): t for t in targets if t.get("username")}
-        new_added = 0
         updated_count = 0
 
-        for u_lower, item in scanned_dict.items():
-            uname = item["username"]
-            sc = item.get("streak_count", 0)
-            is_today = item.get("is_today", False)
-            friend_replied = item.get("friend_replied", False)
+        # 1. Thử quét hội thoại từ API endpoint (hỗ trợ mock & endpoint mở)
+        for ep in [
+            "https://www.tiktok.com/api/v1/web/im/conversation/list/?cursor=0&count=50",
+            "https://www.tiktok.com/api/im/conversation/list/?cursor=0&count=50",
+        ]:
+            try:
+                res_api = requests.get(ep, headers=headers, timeout=5)
+                if res_api.status_code == 200:
+                    raw_data = res_api.json()
+                    conv_list = (
+                        raw_data.get("data", {}).get("conversations")
+                        or raw_data.get("conversations")
+                        or raw_data.get("conversation_list")
+                        or []
+                    )
+                    for conv in conv_list:
+                        details = self._extract_conv_details(conv)
+                        cand_name = details.get("username")
+                        if cand_name and not any(t["username"].lower() == cand_name.lower() for t in targets):
+                            targets.append({
+                                "username": cand_name,
+                                "custom_msg": None,
+                                "streak_count": details.get("streak_count", 0),
+                                "friend_replied": details.get("friend_replied", False),
+                                "last_sent": "Chưa gửi",
+                                "status": "Đã quét từ TikTok API ⚡",
+                            })
+                            updated_count += 1
+            except Exception:
+                pass
 
-            if is_today:
-                desc = f"Đang giữ chuỗi {sc} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
-                if friend_replied:
-                    desc += " • Đối phương đã rep! 🎉"
-                else:
-                    desc += " • Đang chờ đối phương rep 💬"
-            elif sc > 0:
-                desc = f"Chuỗi {sc} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️"
-                if friend_replied:
-                    desc += " • Đối phương đã rep! ✅"
-            else:
-                desc = "Đã quét từ TikTok API ⚡ • Sẵn sàng giữ chuỗi"
+        # 2. Quét và xác thực từng mục tiêu qua TikTok Web SSR
+        for t in targets:
+            u = t.get("username", "")
+            if not u:
+                continue
+            try:
+                resp = requests.get(f"https://www.tiktok.com/@{u}", headers=headers, timeout=6)
+                if resp.status_code == 200:
+                    m = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', resp.text)
+                    if m:
+                        d = json.loads(m.group(1))
+                        u_info = d.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("user", {})
+                        if u_info:
+                            t["nickname"] = u_info.get("nickname") or u
+                            t["sec_uid"] = u_info.get("secUid") or ""
+                            rel = u_info.get("relation", 0)
+                            t["is_friend"] = (rel == 2)
+                            sc = int(t.get("streak_count", 0) or 0)
+                            last_sent = t.get("last_sent", "")
 
-            if u_lower in target_map:
-                t = target_map[u_lower]
-                if sc > 0:
-                    t["streak_count"] = sc
-                t["friend_replied"] = friend_replied or t.get("friend_replied", False)
-                t["last_checked"] = now_str
-                t["status"] = desc
-                if is_today and not (t.get("last_sent") or "").startswith(today_str):
-                    t["last_sent"] = now_str
-                updated_count += 1
-            else:
-                new_entry = {
-                    "username": uname,
-                    "custom_msg": None,
-                    "spam_messages": None,
-                    "streak_count": sc,
-                    "friend_replied": friend_replied,
-                    "last_sent": now_str if is_today else "Chưa gửi",
-                    "last_checked": now_str,
-                    "status": desc,
-                }
-                targets.append(new_entry)
-                new_added += 1
+                            if last_sent.startswith(today_str):
+                                desc = f"Đang giữ chuỗi {sc} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
+                            elif sc > 0:
+                                desc = f"Chuỗi {sc} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️"
+                            else:
+                                if rel == 2:
+                                    desc = f"Bạn bè TikTok ✅ (@{t['nickname']}) • Sẵn sàng giữ chuỗi"
+                                else:
+                                    desc = f"Đã kết nối TikTok API ⚡ (@{t['nickname']})"
+                            t["status"] = desc
+                            t["last_checked"] = now_str
+                            updated_count += 1
+            except Exception as e_check:
+                log.debug("Lỗi check bạn bè @%s: %s", u, e_check)
 
         self.save_targets(targets)
-        log.info("Đã quét tự động từ TikTok API: %d bạn bè (Thêm mới: %d, Cập nhật: %d)", len(scanned_dict), new_added, updated_count)
         return {
             "success": True,
-            "total_scanned": len(scanned_dict),
-            "new_added": new_added,
+            "total_scanned": len(targets),
             "updated": updated_count,
-            "friends": list(scanned_dict.values()),
+            "my_username": health.get("username", ""),
+            "friends": targets,
         }
 
     def mark_manual_send(self, username: str) -> dict:

@@ -165,13 +165,17 @@ with st.sidebar:
         st.warning("🟡 Chưa có phiên TikTok")
         cookie_label = "🍪 Nạp Cookie"
 
+    is_cloud_env = bool(os.environ.get("STREAMLIT_SERVER_PORT") or (os.name != "nt"))
     c_lg1, c_lg2 = st.columns([1.1, 1.1])
     with c_lg1:
-        if st.button("🔑 Đăng nhập", width="stretch", type="secondary", help="Mở Chrome trên máy tính để đăng nhập"):
-            with st.spinner("Đang mở Chrome... Hãy đăng nhập và đóng trình duyệt khi xong."):
-                bot.run_login_sync()
-                st.success("Đã đồng bộ phiên đăng nhập!")
-                st.rerun()
+        if is_cloud_env:
+            st.button("🔑 Đăng nhập", width="stretch", type="secondary", disabled=True, help="Đăng nhập tự động chỉ chạy trên localhost máy tính cá nhân")
+        else:
+            if st.button("🔑 Đăng nhập", width="stretch", type="secondary", help="Mở Chrome trên máy tính để đăng nhập"):
+                with st.spinner("Đang mở Chrome... Hãy đăng nhập và đóng trình duyệt khi xong."):
+                    bot.run_login_sync()
+                    st.success("Đã đồng bộ phiên đăng nhập!")
+                    st.rerun()
     with c_lg2:
         pop_cookie = st.popover(cookie_label, width="stretch")
         with pop_cookie:
@@ -179,6 +183,12 @@ with st.sidebar:
             if health_res.get("expired"):
                 st.error("❌ Cookie hiện tại đã hết hạn (Session Expired)!")
                 st.caption("TikTok đã vô hiệu hóa token này. Vui lòng copy sessionid mới từ trình duyệt và lưu lại bên dưới:")
+            elif health_res.get("valid"):
+                u_n = health_res.get("username", "")
+                st.success(f"🟢 Đã kết nối tài khoản: **@{u_n}**")
+                if st.button("🗑️ Xóa phiên đăng nhập", width="stretch"):
+                    bot.save_session_cookie_string("")
+                    st.rerun()
             elif saved_cookie:
                 preview = (saved_cookie[:25] + "...") if len(saved_cookie) > 25 else saved_cookie
                 st.success(f"🟢 Đang kết nối: `{preview}`")
@@ -194,8 +204,13 @@ with st.sidebar:
                 sub_cookie = st.form_submit_button("💾 Lưu Phiên Mới", type="primary", width="stretch")
                 if sub_cookie and cookie_in.strip():
                     bot.save_session_cookie_string(cookie_in.strip())
-                    st.success("Đã lưu thành công! Đang tải lại...")
-                    time.sleep(0.5)
+                    health_chk = bot.check_session_health()
+                    if health_chk.get("valid"):
+                        st.toast(f"Đã kết nối tài khoản @{health_chk.get('username')}!", icon="🟢")
+                        st.success(f"🎉 Kết nối thành công tài khoản @{health_chk.get('username')}!")
+                    else:
+                        st.warning(f"⚠️ {health_chk.get('msg')}")
+                    time.sleep(0.8)
                     st.rerun()
 
             with st.expander("💡 Cách lấy sessionid nhanh (10 giây)"):
@@ -206,6 +221,21 @@ with st.sidebar:
 4. Tìm dòng tên **sessionid** -> Copy toàn bộ chuỗi **Value**.
 5. Dán vào ô trên rồi bấm **Lưu Phiên Mới**!
 """)
+
+            if not is_cloud_env:
+                st.divider()
+                st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")
+                if st.button("⚡ Tự Động Lấy Cookie từ Chrome", width="stretch"):
+                    with st.spinner("Đang trích xuất phiên từ Chrome..."):
+                        c_res = bot.auto_sync_local_cookies()
+                        if c_res:
+                            st.success("🎉 Đã lấy Cookie thành công!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.warning("Chưa tìm thấy phiên. Hãy bấm 'Đăng nhập' trước!")
+            else:
+                st.caption("💡 *Đang chạy trên Streamlit Cloud: Vui lòng dán sessionid vào ô trên rồi bấm 'Lưu Phiên Mới'.*")
 
             st.divider()
             st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")
@@ -617,9 +647,10 @@ with tabs[1]:
                         else:
                             badge_cls = "badge-warning"
 
+                        nick_disp = f" ({t.get('nickname')})" if t.get("nickname") and t.get("nickname") != t["username"] else ""
                         st.markdown(
                             f"<div style='display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;'>"
-                            f"<span style='font-size:1.05rem; font-weight:700;'>@{t['username']}</span>"
+                            f"<span style='font-size:1.05rem; font-weight:700;'>@{t['username']}{nick_disp}</span>"
                             f"{flame}"
                             f"<span class='status-badge {badge_cls}'>{status_text}</span>"
                             f"</div>",
