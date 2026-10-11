@@ -26,6 +26,32 @@ class TikTokStreakBot:
         self.config_path = STREAK_CONFIG_FILE
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
+    def auto_sync_local_cookies(self) -> str:
+        """
+        TỰ ĐỘNG LẤY COOKIE TIKTOK TỪ TRÌNH DUYỆT (1 Click Tự Động Hoàn Toàn):
+        Không cần copy/paste thủ công: Mở TikTok, tự động trích xuất toàn bộ cookie và lưu bền vững.
+        """
+        driver = self._get_driver(headless=False)
+        try:
+            driver.get("https://www.tiktok.com")
+            time.sleep(3)
+            cookies = driver.get_cookies()
+            parts = [f"{c['name']}={c['value']}" for c in cookies]
+            cookie_str = "; ".join(parts)
+            if cookie_str:
+                self.save_session_cookie_string(cookie_str)
+                log.info("✅ Đã tự động trích xuất và lưu %d cookies TikTok!", len(cookies))
+                return cookie_str
+            return ""
+        except Exception as e:
+            log.error("Lỗi tự động lấy cookie: %s", e)
+            return ""
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
     def save_session_cookie_string(self, cookie_str: str) -> None:
         cookie_file = SESSION_DIR / "session_cookie.txt"
         cookie_file.write_text(cookie_str.strip(), encoding="utf-8")

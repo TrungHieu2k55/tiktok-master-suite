@@ -139,19 +139,30 @@ with st.sidebar:
                 st.success("Đã đồng bộ phiên đăng nhập!")
                 st.rerun()
     with c_lg2:
-        pop_cookie = st.popover("🍪 Cookie", width="stretch")
+        pop_cookie = st.popover("🍪 Phiên TikTok", width="stretch")
         with pop_cookie:
-            st.markdown("**Nhập Cookie TikTok**")
-            st.caption("Dành riêng khi chạy trên Cloud (không có màn hình mở Chrome).")
-            with st.form("cookie_form"):
-                cookie_in = st.text_area("Dán chuỗi Cookie hoặc sessionid:", placeholder="sessionid=xxxx; ...", height=80)
-                sub_cookie = st.form_submit_button("Lưu Cookie", type="primary", width="stretch")
-                if sub_cookie and cookie_in.strip():
-                    bot.save_session_cookie_string(cookie_in.strip())
-                    st.success("Đã lưu Cookie phiên thành công!")
-                    st.toast("Đã nạp Cookie TikTok!", icon="🍪")
-                    time.sleep(1)
-                    st.rerun()
+            st.markdown("**Đồng Bộ Phiên Tự Động**")
+            st.caption("Tự động trích xuất cookie từ Chrome hoặc đồng bộ lên Cloud.")
+            if st.button("⚡ Tự Động Lấy Cookie Ngay", width="stretch", type="primary"):
+                with st.spinner("Đang tự động đọc session từ Chrome..."):
+                    c_res = bot.auto_sync_local_cookies()
+                    if c_res:
+                        st.success("🎉 Đã tự động lấy và lưu Cookie thành công!")
+                        st.toast("Đã trích xuất Cookie tự động!", icon="⚡")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Không tìm thấy phiên. Hãy bấm 'Đăng nhập Chrome' trước!")
+
+            st.divider()
+            with st.expander("📝 Hoặc dán thủ công nếu dùng điện thoại"):
+                with st.form("cookie_form"):
+                    cookie_in = st.text_area("Chuỗi Cookie / sessionid:", placeholder="sessionid=xxxx; ...", height=70)
+                    sub_cookie = st.form_submit_button("Lưu Cookie", width="stretch")
+                    if sub_cookie and cookie_in.strip():
+                        bot.save_session_cookie_string(cookie_in.strip())
+                        st.success("Đã lưu thành công!")
+                        st.rerun()
 
 
 # ---------------------------------------------------------------------------
