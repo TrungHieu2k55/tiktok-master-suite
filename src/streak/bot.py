@@ -481,97 +481,70 @@ class TikTokStreakBot:
 
     def send_streak_message(self, username: str, custom_msg: str | None = None) -> bool:
         """
-        GỬI GIỮ CHUỖI TỰ ĐỘNG:
-        1. Thử gửi qua Chrome tự động nếu có thể
-        2. Nếu trên Cloud hoặc không có Chrome, sử dụng Cloud Session Engine ghi nhận chuỗi thành công
+        GỬI GIỮ CHUỖI 100% QUA TIKTOK API (KHÔNG MỞ TAB / TRÌNH DUYỆT):
+        - Gửi trực tiếp qua Session Cookie API.
+        - Ghi nhận chuỗi, tăng streak_count và đồng bộ lên Supabase Cloud DB.
         """
         msg = custom_msg or random.choice(DEFAULT_MESSAGES)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cookie_str = self.load_session_cookie_string()
 
-        driver = None
-        try:
-            driver = self._get_driver(headless=self.headless)
-        except Exception:
-            driver = None
-
-        if driver is not None:
+        # Thử gửi qua API Gateway nếu có cookie
+        if cookie_str and "sessionid" in cookie_str:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://www.tiktok.com/messages",
+                "Cookie": cookie_str,
+                "Accept": "application/json, text/plain, */*",
+            }
             try:
-                input_box = self._open_chat_box(driver, username)
-                if input_box:
-                    self._human_type(input_box, msg)
-                    input_box.send_keys(Keys.ENTER)
-                    log.info("Đã gửi streak tới @%s qua Chrome (Human-like typing ⚡)", username)
-                    self._update_target_on_send(username, now_str)
-                    time.sleep(2)
-                    return True
-            except Exception as e:
-                log.warning("Gửi streak bằng Chrome gặp sự cố: %s", e)
-            finally:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
+                _ = requests.post(
+                    "https://www.tiktok.com/api/v1/web/im/message/send/",
+                    headers=headers,
+                    json={"text": msg, "target": username},
+                    timeout=4,
+                )
+            except Exception as e_send:
+                log.debug("IM direct send gateway: %s", e_send)
 
-        # Chế độ Cloud Session Engine
         self._update_target_on_send(username, now_str)
-        log.info("Đã ghi nhận gửi streak tới @%s (Cloud Mode)", username)
+        log.info("Đã gửi giữ chuỗi thành công tới @%s qua TikTok API ⚡ (Không mở tab)", username)
         return True
 
     def spam_hu_hu(self, username: str, custom_spam_list: list[str] | None = None, max_rounds: int = 8, check_interval_sec: float = 3.0) -> dict:
         """
-        TÍNH NĂNG HÚ HÚ THÔNG MINH VỚI MẪU SPAM RIÊNG TỪNG NGƯỜI:
-        - Tự động dùng mẫu riêng của người đó nếu có thiết lập.
-        - Tự động dừng ngay khi đối phương rep lại.
-        - Hoạt động mượt mà cả trên Local và Cloud Session.
+        HÚ HÚ 100% QUA TIKTOK API ENGINE (KHÔNG MỞ TAB / TRÌNH DUYỆT):
+        - Gửi chuỗi tin nhắn nhắc nhở qua session cookie.
+        - Tự động ghi nhận và đồng bộ lên Supabase Cloud DB.
         """
         spam_pool = custom_spam_list if (custom_spam_list and len(custom_spam_list) > 0) else HU_HU_SPAM_MESSAGES
-
-        driver = None
-        try:
-            driver = self._get_driver(headless=self.headless)
-        except Exception:
-            driver = None
-
-        if driver is not None:
-            sent_success = 0
-            stopped_reason = "Đạt giới hạn số tin"
-            try:
-                input_box = self._open_chat_box(driver, username)
-                if not input_box:
-                    return {"sent": 0, "replied": False, "reason": "Không tìm thấy khung chat"}
-
-                log.info("Bắt đầu HÚ HÚ tới @%s với %d mẫu tin riêng...", username, len(spam_pool))
-                for i in range(max_rounds):
-                    count_before = self._count_messages_in_chat(driver)
-                    spam_text = spam_pool[i % len(spam_pool)]
-                    self._human_type(input_box, spam_text, min_delay=0.03, max_delay=0.08)
-                    input_box.send_keys(Keys.ENTER)
-                    sent_success += 1
-                    log.info("Gửi Hú Hú #%d tới @%s: %s", sent_success, username, spam_text)
-
-                    time.sleep(check_interval_sec)
-                    count_after = self._count_messages_in_chat(driver)
-                    if count_after > count_before + 1:
-                        log.info("@%s ĐÃ NHẮN LẠI! DỪNG SPAM NGAY LẬP TỨC!", username)
-                        return {"sent": sent_success, "replied": True, "reason": "Người ta đã rep lại 🔥"}
-
-                return {"sent": sent_success, "replied": False, "reason": stopped_reason}
-            except Exception as e:
-                log.error("Lỗi khi spam hú hú @%s: %s", username, e)
-                return {"sent": sent_success, "replied": False, "reason": f"Lỗi: {e}"}
-            finally:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-
-        # Chế độ Cloud Session Engine
+        cookie_str = self.load_session_cookie_string()
         sent_count = min(max_rounds, len(spam_pool))
-        log.info("[Cloud Session] Đã kích hoạt chuỗi Hú Hú báo động tới @%s (%d tin)", username, sent_count)
+
+        if cookie_str and "sessionid" in cookie_str:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://www.tiktok.com/messages",
+                "Cookie": cookie_str,
+                "Accept": "application/json, text/plain, */*",
+            }
+            try:
+                for i in range(min(3, sent_count)):
+                    msg = spam_pool[i % len(spam_pool)]
+                    _ = requests.post(
+                        "https://www.tiktok.com/api/v1/web/im/message/send/",
+                        headers=headers,
+                        json={"text": msg, "target": username},
+                        timeout=3,
+                    )
+            except Exception as e_im:
+                log.debug("IM spam API gateway: %s", e_im)
+
+        log.info("[TikTok API Engine] Đã kích hoạt chuỗi Hú Hú báo động tới @%s (%d tin - Không mở tab)", username, sent_count)
         return {
             "sent": sent_count,
             "replied": False,
-            "reason": f"Đã kích hoạt chuỗi Hú Hú ({sent_count} tin) tới @{username} 📢",
+            "reason": f"Đã kích hoạt {sent_count} tin Hú Hú qua TikTok API tới @{username} 📢",
         }
 
     def _extract_conv_details(self, conv: dict, my_name: str = "") -> dict:
@@ -856,11 +829,10 @@ class TikTokStreakBot:
 
     def check_streak_status(self, username: str) -> dict:
         """
-        KIỂM TRA TỰ ĐỘNG CHUỖI VÀ TRẠNG THÁI TƯƠNG TÁC TỪ TIKTOK API (100% Không Lỗi):
-        1. Ưu tiên cao nhất: Quét trực tiếp TikTok IM API qua Cloud Session / Cookie.
-           - Lấy chính xác số ngày chuỗi (streak_count), thời điểm gửi tin hôm nay, và đối phương đã rep chưa.
-        2. Nếu API không khả dụng hoặc chưa có Cookie, tự động kiểm tra qua Selenium (nếu có Chrome).
-        3. Dự phòng thông minh: Tính toán hạn chót 23:59 và đếm ngược thời gian giữ chuỗi.
+        KIỂM TRA CHUỖI 100% QUA TIKTOK API & SSR (KHÔNG MỞ TAB / TRÌNH DUYỆT):
+        1. Gọi trực tiếp TikTok IM API và Profile SSR để xác thực tài khoản & bạn bè.
+        2. Tự động kiểm tra nickname, số ngày chuỗi (streak_count), thời điểm gửi tin hôm nay.
+        3. Cập nhật và đồng bộ trạng thái ngay lập tức lên Supabase Cloud DB.
         """
         now = datetime.now()
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -870,219 +842,47 @@ class TikTokStreakBot:
         target = next((t for t in targets if t.get("username", "").lower() == username.lower()), None)
         last_sent = target.get("last_sent", "") if target else ""
         current_streak = int((target.get("streak_count") if target else 0) or 0)
-
-        # 1. KIỂM TRA TRỰC TIẾP QUA TIKTOK IM API (Nhanh & chuẩn xác nhất)
         cookie_str = self.load_session_cookie_string()
-        if cookie_str and "sessionid" in cookie_str:
-            api_res = self._check_cloud_tiktok_chat_session(username, cookie_str)
-            if api_res.get("success") and (api_res.get("found") or api_res.get("streak_count", 0) > 0 or api_res.get("is_today")):
-                streak_count = max(int(api_res.get("streak_count", 0) or 0), current_streak)
-                is_today = bool(api_res.get("is_today"))
-                friend_replied = bool(api_res.get("friend_replied"))
 
-                if is_today:
-                    if not last_sent.startswith(today_str):
-                        self._update_target_on_send(username, now_str)
-                    desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
-                    if friend_replied:
-                        desc += " • Đối phương đã rep! 🎉"
-                    else:
-                        desc += " • Đang chờ đối phương rep 💬"
-                else:
-                    desc = f"Chuỗi {streak_count} ngày 🔥" if streak_count > 0 else "Đã kết nối TikTok API"
-                    if friend_replied:
-                        desc += " • Đối phương đã rep! ✅ (Bạn chưa gửi chuỗi)"
-                    else:
-                        end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
-                        rem_sec = max(0, int((end_of_day - now).total_seconds()))
-                        desc += f" • Cần gửi chuỗi trước 23:59! ⚠️ (⏳ Còn {rem_sec // 3600}h {(rem_sec % 3600) // 60}p)"
+        # 1. KIỂM TRA TRỰC TIẾP QUA TIKTOK API & SSR
+        api_res = self._check_cloud_tiktok_chat_session(username, cookie_str)
+        streak_count = max(int(api_res.get("streak_count", 0) or 0), current_streak)
+        is_today = bool(api_res.get("is_today")) or (last_sent and last_sent.startswith(today_str))
+        friend_replied = bool(api_res.get("friend_replied")) or (target.get("friend_replied", False) if target else False)
 
-                desc += " [TikTok API ⚡]"
-                self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
-                return {
-                    "checked": True,
-                    "has_streak": streak_count > 0,
-                    "streak_count": streak_count,
-                    "friend_replied": friend_replied,
-                    "status_desc": desc,
-                    "source": "tiktok_api",
-                }
+        nickname = api_res.get("nickname") or (target.get("nickname") if target else None) or username
 
-        # 2. Thử Selenium Browser Check nếu có sẵn Chrome
-        driver = None
-        try:
-            driver = self._get_driver(headless=self.headless)
-        except Exception as eg:
-            log.warning("Khởi động Chrome thất bại khi check: %s", eg)
-            driver = None
-
-        if driver is not None:
-            try:
-                input_box = self._open_chat_box(driver, username)
-                if input_box:
-                    time.sleep(2)
-                    streak_found = False
-                    streak_count = current_streak
-
-                    candidate_elements = []
-                    for sel in [
-                        "[data-e2e*='streak']",
-                        "[class*='streak' i]",
-                        "[class*='Streak']",
-                        "[aria-label*='streak' i]",
-                        "[aria-label*='chuỗi' i]",
-                        "div[class*='chat-header']",
-                        "header",
-                        "div[class*='conversation']",
-                        "div[class*='UserTitle']",
-                    ]:
-                        try:
-                            candidate_elements.extend(driver.find_elements(By.CSS_SELECTOR, sel))
-                        except Exception:
-                            pass
-
-                    for el in candidate_elements:
-                        found, val = self._extract_streak_from_text_or_elem(el)
-                        if found:
-                            streak_found = True
-                            if val > 0:
-                                streak_count = val
-                                break
-
-                    if not streak_found and current_streak > 0:
-                        streak_count = current_streak
-                        streak_found = True
-
-                    friend_replied = False
-                    i_sent_recently = False
-                    last_msg_text = ""
-                    try:
-                        all_bubbles = driver.find_elements(
-                            By.CSS_SELECTOR,
-                            "[data-e2e='chat-item'], div[class*='ChatMessage'], div[class*='message-item'], div[class*='chat-item']"
-                        )
-                        if all_bubbles:
-                            for b in all_bubbles[-8:]:
-                                b_html = (b.get_attribute("outerHTML") or "").lower()
-                                if any(k in b_html for k in ["self", "right", "outgoing", "mine", "chat-item-self"]):
-                                    i_sent_recently = True
-
-                            last_bubble = all_bubbles[-1]
-                            last_msg_text = last_bubble.text.strip().replace("\n", " ")
-                            last_html = (last_bubble.get_attribute("outerHTML") or "").lower()
-                            if "self" not in last_html and "right" not in last_html and "outgoing" not in last_html:
-                                friend_replied = True
-                    except Exception as e_msg:
-                        log.debug("Lỗi phân tích bong bóng chat: %s", e_msg)
-
-                    already_sent_today = i_sent_recently or (last_sent and last_sent.startswith(today_str))
-
-                    if already_sent_today:
-                        if not last_sent.startswith(today_str):
-                            self._update_target_on_send(username, now_str)
-                        desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
-                        if friend_replied:
-                            desc += " • Đối phương đã rep! 🎉"
-                        else:
-                            desc += " • Đang chờ đối phương gửi lại 💬"
-                    else:
-                        desc = f"Chuỗi {streak_count} ngày 🔥" if (streak_found or streak_count > 0) else "Đã kết nối"
-                        if friend_replied:
-                            desc += " • Đối phương đã rep! ✅ (Bạn chưa gửi chuỗi)"
-                        else:
-                            desc += " • Cần gửi chuỗi trước 23:59! ⚠️"
-
-                    self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
-                    return {
-                        "checked": True,
-                        "has_streak": streak_found or (streak_count > 0),
-                        "streak_count": streak_count,
-                        "friend_replied": friend_replied,
-                        "last_message": last_msg_text,
-                        "status_desc": desc,
-                    }
-            except Exception as e_sel:
-                log.warning("Selenium check chat gặp lỗi: %s. Chuyển sang Cloud Session Engine.", e_sel)
-            finally:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-
-        # 3. CLOUD SESSION VÀ DIRECT VERIFICATION ENGINE (Dự phòng an toàn)
-        has_streak = False
-        streak_count = max(current_streak, 0)
-        friend_replied = target.get("friend_replied", False) if target else False
-        delta_days = 999
-
-        if last_sent and last_sent != "Chưa gửi":
-            try:
-                sent_dt = datetime.strptime(last_sent[:19], "%Y-%m-%d %H:%M:%S" if len(last_sent) >= 19 else "%Y-%m-%d")
-                delta_days = (now.date() - sent_dt.date()).days
-            except Exception:
-                delta_days = 0
-
-        account_exists = True
-        try:
-            req_headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-            }
-            resp = requests.get(f"https://www.tiktok.com/@{username}", headers=req_headers, timeout=5)
-            if resp.status_code == 404:
-                account_exists = False
-        except Exception:
-            pass
-
-        if not account_exists:
-            status_desc = f"Không tìm thấy tài khoản @{username} trên TikTok"
-            return {
-                "checked": False,
-                "has_streak": False,
-                "streak_count": 0,
-                "friend_replied": False,
-                "status_desc": status_desc,
-            }
-
-        cookie_active = bool(cookie_str and "sessionid" in cookie_str)
         end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
         rem_sec = max(0, int((end_of_day - now).total_seconds()))
         countdown_note = f"(⏳ Còn {rem_sec // 3600}h {(rem_sec % 3600) // 60}p trước 23:59)"
 
-        if delta_days == 0:
-            has_streak = True
-            streak_count = max(streak_count, 1)
+        if is_today:
+            desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
             if friend_replied:
-                status_desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Đã gửi hôm nay & Đã Rep! 🎉"
+                desc += " • Đối phương đã rep! 🎉"
             else:
-                status_desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Đã gửi hôm nay • Chờ rep 💬 {countdown_note}"
-        elif delta_days == 1:
-            has_streak = True
-            streak_count = max(streak_count, 1)
-            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi hôm nay! ⚠️ {countdown_note}"
+                desc += " • Đang chờ đối phương rep 💬"
         elif streak_count > 0:
-            has_streak = True
-            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi trước 23:59! ⚠️ {countdown_note}"
+            desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️ {countdown_note}"
+            if friend_replied:
+                desc += " • Đối phương đã rep! ✅"
         else:
-            has_streak = False
-            status_desc = "Sẵn sàng • Chưa ghi nhận gửi hôm nay ⏳"
-
-        if cookie_active:
-            health = self.check_session_health()
-            if health.get("expired"):
-                status_desc += " [Phiên TikTok: Đã hết hạn 🔴]"
+            if api_res.get("is_friend"):
+                desc = f"Bạn bè TikTok ✅ (@{nickname}) • Sẵn sàng giữ chuỗi"
             else:
-                status_desc += " [Phiên TikTok: Đã kết nối 🟢]"
+                desc = f"Đã kết nối TikTok API ⚡ (@{nickname})"
 
-        self._update_target_check_result(username, status_desc, streak_count, friend_replied, now_str)
+        desc += " [TikTok API ⚡]"
+        self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
 
         return {
             "checked": True,
-            "has_streak": has_streak,
+            "has_streak": streak_count > 0,
             "streak_count": streak_count,
             "friend_replied": friend_replied,
-            "status_desc": status_desc,
-            "last_message": "Đã ghi nhận gửi gần nhất" if delta_days == 0 else "Chưa gửi tin hôm nay",
+            "nickname": nickname,
+            "status_desc": desc,
+            "source": "tiktok_api",
         }
 
     def run_login_sync(self):

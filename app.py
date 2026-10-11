@@ -53,7 +53,7 @@ current_user = get_current_user() or {}
 user_role = current_user.get("role", "guest")
 user_name = current_user.get("name", "Người dùng")
 
-bot = TikTokStreakBot(headless=False)
+bot = TikTokStreakBot(headless=True)
 profile_exists = (SESSION_DIR / "chrome_tiktok_profile").exists()
 
 # ---------------------------------------------------------------------------
