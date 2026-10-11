@@ -348,11 +348,13 @@ with tabs[1]:
         st.write("")
 
         # Hàng tiêu đề danh sách + Các nút hành động căn giữa dọc
-        col_act1, col_act2, col_act_backup, col_act3 = st.columns([2.6, 1.4, 1.0, 0.8], vertical_alignment="center")
+        col_act1, col_act2, col_act_check_all, col_act_backup, col_act3 = st.columns([2.0, 1.2, 1.2, 0.9, 0.7], vertical_alignment="center")
         with col_act1:
             st.markdown("<h3 style='margin:0; padding:0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
         with col_act2:
             btn_run_all = st.button("⚡ Gửi tất cả", type="primary", width="stretch")
+        with col_act_check_all:
+            btn_check_all = st.button("🔍 Check tất cả", width="stretch", help="Quét và cập nhật trạng thái toàn bộ danh sách")
         with col_act_backup:
             pop_bak = st.popover("💾 Sao lưu", width="stretch")
             with pop_bak:
@@ -396,11 +398,13 @@ with tabs[1]:
         # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
         with st.expander("➕ Thêm bạn bè", expanded=(len(targets) == 0)):
             with st.form("add_friend_form", clear_on_submit=True):
-                fc1, fc2, fc3 = st.columns([2.5, 3.5, 1.5], vertical_alignment="bottom")
+                fc1, fc2, fc_sc, fc3 = st.columns([2.4, 2.6, 1.3, 1.2], vertical_alignment="bottom")
                 with fc1:
                     username_in = st.text_input("Username TikTok (không cần @):", placeholder="ví dụ: ban_than_123")
                 with fc2:
-                    custom_msg_in = st.text_input("Tin nhắn hàng ngày (mặc định gửi icon 🔥):", placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥")
+                    custom_msg_in = st.text_input("Tin nhắn riêng:", placeholder="Ví dụ: Giữ chuỗi nè 🔥")
+                with fc_sc:
+                    streak_init_in = st.number_input("Chuỗi đã có:", min_value=0, value=0, step=1, help="Số ngày chuỗi hiện có sẵn từ trước")
                 with fc3:
                     submit_add = st.form_submit_button("Thêm ngay", type="primary", width="stretch")
 
@@ -428,16 +432,47 @@ with tabs[1]:
                             st.warning(f"@{clean_name} đã có trong danh sách!")
                         else:
                             spam_lines = [s.strip() for s in custom_spams_in.split("\n") if s.strip()] if custom_spams_in else None
+                            init_sc = int(streak_init_in)
                             targets.append({
                                 "username": clean_name,
                                 "custom_msg": custom_msg_in.strip() if custom_msg_in.strip() else None,
                                 "spam_messages": spam_lines,
+                                "streak_count": init_sc,
+                                "friend_replied": False,
                                 "last_sent": "Chưa gửi",
-                                "status": "Ready",
+                                "status": f"Chuỗi {init_sc} ngày 🔥" if init_sc > 0 else "Ready",
                             })
                             bot.save_targets(targets)
                             st.success(f"Đã thêm @{clean_name} thành công!")
                             st.rerun()
+
+        if btn_check_all:
+            if not targets:
+                st.warning("Chưa có bạn bè nào trong danh sách!")
+            else:
+                progress_holder = st.empty()
+                status_holder = st.empty()
+                progress = progress_holder.progress(0)
+
+                for idx, t in enumerate(targets):
+                    u = t["username"]
+                    status_holder.info(f"🔍 Đang kiểm tra cuộc trò chuyện với **@{u}** ({idx+1}/{len(targets)})...")
+                    try:
+                        res = bot.run_check_sync(u)
+                        if res.get("checked"):
+                            t["status"] = res.get("status_desc")
+                            if "streak_count" in res:
+                                t["streak_count"] = res["streak_count"]
+                            if "friend_replied" in res:
+                                t["friend_replied"] = res["friend_replied"]
+                    except Exception as ex:
+                        log.warning("Check all error @%s: %s", u, ex)
+                    progress.progress((idx + 1) / len(targets))
+
+                bot.save_targets(targets)
+                status_holder.success("🎉 Đã kiểm tra xong toàn bộ bạn bè!")
+                time.sleep(1)
+                st.rerun()
 
         if btn_run_all:
             if not targets:
@@ -488,7 +523,7 @@ with tabs[1]:
 
             for idx, t in enumerate(targets):
                 with st.container(border=True):
-                    r1, r2, r3, r4, r_check, r5, r6, r7 = st.columns([1.8, 2.0, 1.6, 1.8, 0.9, 0.9, 0.9, 0.4], vertical_alignment="center")
+                    r1, r2, r3, r4, r_check, r5, r6, r_rep, r7 = st.columns([1.6, 1.7, 1.4, 1.8, 0.8, 0.8, 0.8, 0.6, 0.4], vertical_alignment="center")
 
                     # Cột 1: Username & Chuỗi
                     with r1:

@@ -328,6 +328,28 @@ class TikTokStreakBot:
                 continue
         return None
 
+    def _extract_streak_from_text_or_elem(self, elem) -> tuple[bool, int]:
+        try:
+            txt = elem.text.strip() if hasattr(elem, "text") else ""
+            aria = elem.get_attribute("aria-label") or ""
+            title = elem.get_attribute("title") or ""
+            combined = f"{txt} {aria} {title}".strip()
+            if not combined:
+                return False, 0
+            if "🔥" in combined or "streak" in combined.lower() or "chuỗi" in combined.lower():
+                m = re.search(r'🔥\s*(\d+)|(\d+)\s*🔥|(\d+)\s*(?:ngày|days?)|(?:streak|chuỗi)\s*:?\s*(\d+)', combined, re.IGNORECASE)
+                if m:
+                    for grp in m.groups():
+                        if grp and grp.isdigit():
+                            return True, int(grp)
+                digits = re.findall(r'\b\d+\b', combined)
+                if digits:
+                    return True, int(digits[0])
+                return True, 1
+        except Exception:
+            pass
+        return False, 0
+
     def _count_messages_in_chat(self, driver) -> int:
         if not driver:
             return 0
@@ -466,19 +488,39 @@ class TikTokStreakBot:
                     time.sleep(2)
                     streak_found = False
                     streak_count = current_streak
-                    for sel in ["[data-e2e*='streak']", "[class*='Streak']", "[aria-label*='streak']", "[aria-label*='chuỗi']"]:
+
+                    candidate_elements = []
+                    for sel in [
+                        "[data-e2e*='streak']",
+                        "[class*='streak' i]",
+                        "[class*='Streak']",
+                        "[aria-label*='streak' i]",
+                        "[aria-label*='chuỗi' i]",
+                        "div[class*='chat-header']",
+                        "header",
+                        "div[class*='conversation']",
+                        "div[class*='UserTitle']",
+                    ]:
                         try:
-                            elems = driver.find_elements(By.CSS_SELECTOR, sel)
-                            if elems:
-                                streak_found = True
-                                for el in elems:
-                                    txt = el.text.strip()
-                                    if txt.isdigit():
-                                        streak_count = int(txt)
-                                        break
-                                break
+                            candidate_elements.extend(driver.find_elements(By.CSS_SELECTOR, sel))
                         except Exception:
-                            continue
+                            pass
+                    try:
+                        candidate_elements.extend(driver.find_elements(By.XPATH, "//*[contains(text(), '🔥') or contains(@aria-label, '🔥') or contains(@title, '🔥')]"))
+                    except Exception:
+                        pass
+
+                    for el in candidate_elements:
+                        found, val = self._extract_streak_from_text_or_elem(el)
+                        if found:
+                            streak_found = True
+                            if val > 0:
+                                streak_count = val
+                                break
+
+                    if not streak_found and current_streak > 0:
+                        streak_count = current_streak
+                        streak_found = True
 
                     friend_replied = False
                     last_msg_text = ""
@@ -537,7 +579,8 @@ class TikTokStreakBot:
                 "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
             }
             resp = requests.get(f"https://www.tiktok.com/@{username}", headers=req_headers, timeout=5)
-            if resp.status_code == 404:
+            resp_lower = resp.text.lower()
+            if resp.status_code == 404 or "couldn't find this account" in resp_lower or "không thể tìm thấy tài khoản" in resp_lower:
                 account_exists = False
         except Exception:
             pass
@@ -555,18 +598,23 @@ class TikTokStreakBot:
         cookie_str = self.load_session_cookie_string()
         cookie_active = bool(cookie_str and "sessionid" in cookie_str)
 
+        end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
+        rem_sec = max(0, int((end_of_day - now).total_seconds()))
+        rem_h = rem_sec // 3600
+        rem_m = (rem_sec % 3600) // 60
+        countdown_note = f"(⏳ Còn {rem_h}h {rem_m}p trước 23:59)"
+
         if delta_days == 0:
             has_streak = True
             streak_count = max(streak_count, 1)
-            status_desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
             if friend_replied:
-                status_desc += " • Đối phương đã rep! 🎉"
+                status_desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Đã gửi hôm nay & Đã Rep! 🎉"
             else:
-                status_desc += " • Đang chờ đối phương gửi lại 💬"
+                status_desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Đã gửi hôm nay • Chờ rep 💬 {countdown_note}"
         elif delta_days == 1:
             has_streak = True
             streak_count = max(streak_count, 1)
-            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️"
+            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi chuỗi ngay! ⚠️ {countdown_note}"
         elif delta_days > 1 and delta_days != 999:
             has_streak = False
             status_desc = f"Chuỗi đã gián đoạn ({delta_days} ngày chưa gửi) ⚡"
