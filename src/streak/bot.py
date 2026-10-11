@@ -458,6 +458,33 @@ class TikTokStreakBot:
             "reason": f"Đã kích hoạt chuỗi Hú Hú ({sent_count} tin) tới @{username} 📢",
         }
 
+    def mark_manual_send(self, username: str) -> dict:
+        """
+        GHI NHẬN ĐÃ GỬI CHUỖI BẰNG TAY (TRÊN ĐIỆN THOẠI HOẶC BROWSER):
+        Cập nhật last_sent là thời điểm hiện tại, duy trì/tăng chuỗi và đồng bộ Supabase.
+        """
+        now = datetime.now()
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        today_str = now.strftime("%Y-%m-%d")
+        targets = self.load_targets()
+        for t in targets:
+            if t.get("username") == username:
+                prev_sent = t.get("last_sent", "")
+                sc = int(t.get("streak_count", 0) or 0)
+                if not prev_sent.startswith(today_str):
+                    sc = max(sc + 1, 1)
+                t["streak_count"] = sc
+                t["last_sent"] = now_str
+                desc = f"Đang giữ chuỗi {sc} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
+                if t.get("friend_replied"):
+                    desc += " • Đối phương đã rep! 🎉"
+                else:
+                    desc += " • Đang chờ đối phương gửi lại 💬"
+                t["status"] = desc
+                self.save_targets(targets)
+                return {"success": True, "streak_count": sc, "status_desc": desc}
+        return {"success": False, "streak_count": 0, "status_desc": "Không tìm thấy tài khoản"}
+
     def check_streak_status(self, username: str) -> dict:
         """
         KIỂM TRA TỰ ĐỘNG CHUỖI VÀ TRẠNG THÁI TƯƠNG TÁC (100% Không Lỗi):
@@ -523,23 +550,44 @@ class TikTokStreakBot:
                         streak_found = True
 
                     friend_replied = False
+                    i_sent_recently = False
                     last_msg_text = ""
                     try:
-                        all_bubbles = driver.find_elements(By.CSS_SELECTOR, "[data-e2e='chat-item'], div[class*='ChatMessage'], div[class*='message-item']")
+                        all_bubbles = driver.find_elements(
+                            By.CSS_SELECTOR,
+                            "[data-e2e='chat-item'], div[class*='ChatMessage'], div[class*='message-item'], div[class*='chat-item']"
+                        )
                         if all_bubbles:
+                            for b in all_bubbles[-8:]:
+                                b_html = (b.get_attribute("outerHTML") or "").lower()
+                                if any(k in b_html for k in ["self", "right", "outgoing", "mine", "chat-item-self"]):
+                                    i_sent_recently = True
+
                             last_bubble = all_bubbles[-1]
                             last_msg_text = last_bubble.text.strip().replace("\n", " ")
-                            b_html = last_bubble.get_attribute("outerHTML") or ""
-                            if "self" not in b_html.lower() and "right" not in b_html.lower():
+                            last_html = (last_bubble.get_attribute("outerHTML") or "").lower()
+                            if "self" not in last_html and "right" not in last_html and "outgoing" not in last_html:
                                 friend_replied = True
                     except Exception as e_msg:
                         log.debug("Lỗi phân tích bong bóng chat: %s", e_msg)
 
-                    desc = f"Đang có chuỗi {streak_count} ngày 🔥" if (streak_found or streak_count > 0) else "Đã kết nối cuộc trò chuyện"
-                    if friend_replied:
-                        desc += " • Người kia đã rep lại! ✅"
+                    today_str = now.strftime("%Y-%m-%d")
+                    already_sent_today = i_sent_recently or (last_sent and last_sent.startswith(today_str))
+
+                    if already_sent_today:
+                        if not last_sent.startswith(today_str):
+                            self._update_target_on_send(username, now_str)
+                        desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
+                        if friend_replied:
+                            desc += " • Đối phương đã rep! 🎉"
+                        else:
+                            desc += " • Đang chờ đối phương gửi lại 💬"
                     else:
-                        desc += " • Đang chờ người kia gửi ⚠️"
+                        desc = f"Chuỗi {streak_count} ngày 🔥" if (streak_found or streak_count > 0) else "Đã kết nối"
+                        if friend_replied:
+                            desc += " • Đối phương đã rep! ✅ (Bạn chưa gửi chuỗi)"
+                        else:
+                            desc += " • Cần gửi chuỗi trước 23:59! ⚠️"
 
                     self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
                     return {
@@ -613,13 +661,13 @@ class TikTokStreakBot:
         elif delta_days == 1:
             has_streak = True
             streak_count = max(streak_count, 1)
-            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi chuỗi ngay! ⚠️ {countdown_note}"
-        elif delta_days > 1 and delta_days != 999:
-            has_streak = False
-            status_desc = f"Chuỗi đã gián đoạn ({delta_days} ngày chưa gửi) ⚡"
+            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi hôm nay! ⚠️ {countdown_note}"
+        elif streak_count > 0:
+            has_streak = True
+            status_desc = f"Chuỗi {streak_count} ngày 🔥 • Cần gửi trước 23:59! ⚠️ {countdown_note}"
         else:
             has_streak = False
-            status_desc = "Sẵn sàng • Chưa gửi chuỗi hôm nay ⏳"
+            status_desc = "Sẵn sàng • Chưa ghi nhận gửi hôm nay ⏳"
 
         if cookie_active:
             status_desc += " [Phiên TikTok: Đã kết nối 🟢]"

@@ -519,7 +519,7 @@ with tabs[1]:
         st.write("")
         if targets:
             # Hàng tiêu đề cột
-            th1, th2, th3, th4, th5 = st.columns([1.8, 2.0, 1.6, 1.8, 2.8], vertical_alignment="center")
+            th1, th2, th3, th4, th5 = st.columns([1.5, 1.6, 1.3, 1.8, 3.8], vertical_alignment="center")
             with th1:
                 st.markdown("<div class='table-col-header'>Tài Khoản</div>", unsafe_allow_html=True)
             with th2:
@@ -533,7 +533,7 @@ with tabs[1]:
 
             for idx, t in enumerate(targets):
                 with st.container(border=True):
-                    r1, r2, r3, r4, r_check, r5, r6, r_rep, r7 = st.columns([1.6, 1.7, 1.4, 1.8, 0.8, 0.8, 0.8, 0.6, 0.4], vertical_alignment="center")
+                    r1, r2, r3, r4, r_check, r5, r_manual, r6, r_rep, r7 = st.columns([1.5, 1.6, 1.3, 1.8, 0.7, 0.7, 0.7, 0.7, 0.6, 0.4], vertical_alignment="center")
 
                     # Cột 1: Username & Chuỗi
                     with r1:
@@ -584,9 +584,9 @@ with tabs[1]:
                                 except Exception as err:
                                     st.error(f"⚠️ {err}")
 
-                    # Cột 5: Nút Gửi
+                    # Cột 5: Nút Gửi tự động qua bot
                     with r5:
-                        if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch"):
+                        if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch", help="Gửi tự động qua bot"):
                             with st.spinner(f"Đang gửi tới @{t['username']}..."):
                                 ok = bot.run_send_sync(t["username"], t.get("custom_msg"))
                                 if ok:
@@ -597,6 +597,16 @@ with tabs[1]:
                                     st.rerun()
                                 else:
                                     st.error("Gửi thất bại!")
+
+                    # Cột 5.5: Nút Ghi nhận đã gửi bằng tay trên điện thoại
+                    with r_manual:
+                        if st.button("✋ Đã gửi", key=f"manual_{idx}", help="Bấm vào đây nếu bạn đã gửi chuỗi bằng tay trên điện thoại", width="stretch"):
+                            res_m = bot.mark_manual_send(t["username"])
+                            if res_m.get("success"):
+                                st.toast(f"Đã ghi nhận bạn gửi chuỗi tới @{t['username']}!", icon="🔥")
+                                st.success(f"@{t['username']}: {res_m.get('status_desc')}")
+                                time.sleep(0.5)
+                                st.rerun()
 
                     # Cột 6: Nút HÚ HÚ
                     with r6:
