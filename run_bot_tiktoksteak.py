@@ -1,14 +1,14 @@
 """
-run_bot.py — CLI Runner cho TikTok Streak Suite & Tự động chạy ngầm (Autonomous Daemon).
+run_bot_tiktoksteak.py — CLI Runner cho TikTok Streak Suite & Tự động chạy ngầm (Autonomous Daemon).
 
 Sử dụng:
-    python run_bot.py --help                : Xem hướng dẫn lệnh
-    python run_bot.py send                  : Gửi giữ chuỗi tới tất cả bạn bè ngay lập tức
-    python run_bot.py check                 : Kiểm tra trạng thái chuỗi & rep 2 chiều tất cả bạn bè
-    python run_bot.py huhu                  : Kích hoạt Hú Hú khẩn cấp tới những ai chưa giữ chuỗi hôm nay
-    python run_bot.py scan                  : Quét hộp thư TikTok và tự động cập nhật bạn bè
-    python run_bot.py daemon                : Chạy tiến trình canh gác ngầm liên tục theo giờ hẹn
-    python run_bot.py daemon --huhu 23:30   : Canh gác ngầm với mốc Hú Hú tuỳ chọn
+    python run_bot_tiktoksteak.py --help                : Xem hướng dẫn lệnh
+    python run_bot_tiktoksteak.py send                  : Gửi giữ chuỗi tới tất cả bạn bè ngay lập tức
+    python run_bot_tiktoksteak.py check                 : Kiểm tra trạng thái chuỗi & rep 2 chiều tất cả bạn bè
+    python run_bot_tiktoksteak.py huhu                  : Kích hoạt Hú Hú khẩn cấp tới những ai chưa giữ chuỗi hôm nay
+    python run_bot_tiktoksteak.py scan                  : Quét hộp thư TikTok và tự động cập nhật bạn bè
+    python run_bot_tiktoksteak.py daemon                : Chạy tiến trình canh gác ngầm liên tục theo giờ hẹn
+    python run_bot_tiktoksteak.py daemon --huhu 23:30   : Canh gác ngầm với mốc Hú Hú tuỳ chọn
 """
 import argparse
 import io
@@ -31,7 +31,7 @@ from src.streak.bot import TikTokStreakBot
 from src.streak.scheduler import StreakScheduler, load_scheduler_config, save_scheduler_config
 from src.utils.logger import get_logger
 
-log = get_logger("run_bot")
+log = get_logger("run_bot_tiktoksteak")
 
 
 def cmd_send(args):
@@ -39,7 +39,7 @@ def cmd_send(args):
     bot = TikTokStreakBot(headless=True)
     targets = bot.load_targets()
     if not targets:
-        print("⚠️ Chưa có bạn bè nào trong danh sách. Hãy chạy 'python run_bot.py scan' trước.")
+        print("⚠️ Chưa có bạn bè nào trong danh sách. Hãy chạy 'python run_bot_tiktoksteak.py scan' trước.")
         return
 
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -156,7 +156,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Nếu người dùng chỉ gõ 'python run_bot.py' (không truyền tham số nào)
+    # Nếu người dùng chỉ gõ 'python run_bot_tiktoksteak.py' (không truyền tham số nào)
     # -> Mặc định tự động kích hoạt chế độ canh gác ngầm DAEMON 24/7!
     if not args.command or args.command == "daemon":
         if not hasattr(args, "huhu"):
