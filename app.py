@@ -463,43 +463,130 @@ with tabs[1]:
                     st.toast("Đã xoá toàn bộ danh sách!", icon="🗑️")
                     st.rerun()
 
-        if btn_scan_all:
-            with st.spinner("🔄 Đang kết nối TikTok API để quét danh sách bạn bè & check chuỗi..."):
-                scan_res = bot.run_scan_friends_sync()
-                if scan_res.get("success"):
-                    tot = scan_res.get("total_scanned", 0)
-                    new_n = scan_res.get("new_added", 0)
-                    upd_n = scan_res.get("updated", 0)
-                    st.toast(f"Đã quét thành công {tot} bạn bè từ TikTok API!", icon="🔥")
-                    st.success(f"🎉 **Đã quét thành công từ TikTok API!** Phát hiện **{tot}** bạn bè (Thêm mới: **{new_n}**, Cập nhật chuỗi: **{upd_n}**).")
-                    time.sleep(1.2)
-                    st.rerun()
+        # Xử lý khi bấm nút Quét Hộp Thư Tin Nhắn
+        if btn_scan_all or st.session_state.get("trigger_scan_now"):
+            if "trigger_scan_now" in st.session_state:
+                del st.session_state["trigger_scan_now"]
+            with st.spinner("🔄 Đang quét danh sách hội thoại từ hộp thư TikTok (Headless ngầm)..."):
+                discovered = bot.scan_inbox_conversations()
+                if discovered:
+                    st.session_state["scanned_inbox_candidates"] = discovered
+                    st.toast(f"Đã tìm thấy {len(discovered)} bạn bè trong hộp thư!", icon="🔍")
                 else:
-                    reason = scan_res.get("reason", "Vui lòng kiểm tra Cookie / Session ID.")
-                    st.warning(f"⚠️ Không thể quét từ TikTok API: {reason}")
+                    st.warning("⚠️ Không tìm thấy cuộc hội thoại nào hoặc phiên Cookie hết hạn. Vui lòng kiểm tra lại sessionid.")
 
-        # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
-        with st.expander("➕ Thêm bạn bè & Quét tự động từ TikTok API", expanded=(len(targets) == 0)):
-            btn_auto_scan_friends = st.button(
-                "⚡ Tự Động Quét & Nhận Diện Chuỗi Toàn Bộ Bạn Bè Từ TikTok API (1 Click)",
-                type="primary",
-                use_container_width=True,
-                help="Tự động trích xuất toàn bộ bạn bè và chuỗi streak từ TikTok API vào danh sách",
-            )
-            if btn_auto_scan_friends:
-                with st.spinner("🔄 Đang kết nối TikTok API để quét danh sách bạn bè & check chuỗi..."):
-                    scan_res = bot.run_scan_friends_sync()
-                    if scan_res.get("success"):
-                        tot = scan_res.get("total_scanned", 0)
-                        new_n = scan_res.get("new_added", 0)
-                        upd_n = scan_res.get("updated", 0)
-                        st.toast(f"Đã cập nhật {tot} bạn bè từ TikTok API!", icon="🔥")
-                        st.success(f"🎉 **Đã quét thành công từ TikTok API!** Phát hiện **{tot}** bạn bè (Thêm mới: **{new_n}**, Cập nhật chuỗi: **{upd_n}**).")
+        # HỘP CHỌN BẠN BÈ VỪA QUÉT ĐƯỢC (SELECTIVE IMPORT)
+        if "scanned_inbox_candidates" in st.session_state and st.session_state["scanned_inbox_candidates"]:
+            candidates = st.session_state["scanned_inbox_candidates"]
+            with st.container(border=True):
+                st.markdown(f"#### 🎯 Chọn Bạn Bè Cần Giữ Chuỗi (Phát hiện {len(candidates)} người)")
+                st.caption("Tick chọn những người bạn muốn giữ chuỗi (bỏ qua các tài khoản shop/quảng cáo), có thể chỉnh số chuỗi ban đầu rồi bấm **Thêm vào danh sách**.")
+
+                col_sa1, col_sa2 = st.columns([1, 1])
+                with col_sa1:
+                    select_all_btn = st.button("Chọn tất cả", key="btn_sel_all", type="secondary")
+                with col_sa2:
+                    deselect_all_btn = st.button("Bỏ chọn tất cả", key="btn_desel_all", type="secondary")
+
+                existing_unames = {t.get("username", "").lower() for t in targets}
+                selected_data = []
+
+                for idx, c in enumerate(candidates):
+                    u = c.get("username", "")
+                    nick = c.get("nickname", u)
+                    last_msg = c.get("last_msg", "")
+                    rep = c.get("friend_replied", False)
+                    sc_init = int(c.get("streak_count", 0) or 0)
+                    is_already_added = u.lower() in existing_unames
+
+                    # Mặc định tick nếu chưa có và có dấu hiệu chuỗi hoặc người thật
+                    def_val = not is_already_added
+                    if select_all_btn:
+                        def_val = True
+                    elif deselect_all_btn:
+                        def_val = False
+
+                    col_c1, col_c2, col_c3, col_c4 = st.columns([0.6, 2.5, 3.5, 1.4], vertical_alignment="center")
+                    with col_c1:
+                        checked = st.checkbox("", value=def_val, key=f"chk_cand_{idx}_{u}", label_visibility="collapsed")
+                    with col_c2:
+                        rep_badge = " • <span style='color:#10b981;font-weight:600;'>Đã rep ✅</span>" if rep else " • <span style='color:#f59e0b;font-weight:600;'>Chưa rep 💬</span>"
+                        already_tag = " <span style='color:#6366f1;font-size:11px;'>(Đã có trong list)</span>" if is_already_added else ""
+                        st.markdown(f"**{nick}** (@{u}){already_tag}<br><small style='color:#6b7280;'>{rep_badge}</small>", unsafe_allow_html=True)
+                    with col_c3:
+                        msg_preview = last_msg[:50] + "..." if len(last_msg) > 50 else (last_msg or "*(Không có tin nhắn gần)*")
+                        st.caption(f"💬 *{msg_preview}*")
+                    with col_c4:
+                        streak_in = st.number_input("Số chuỗi 🔥:", min_value=0, max_value=9999, value=sc_init, step=1, key=f"num_cand_{idx}_{u}")
+
+                    if checked:
+                        selected_data.append({
+                            "username": u,
+                            "nickname": nick,
+                            "streak_count": streak_in,
+                            "friend_replied": rep,
+                            "last_msg": last_msg,
+                        })
+
+                col_btn_apply, col_btn_cancel = st.columns([2, 1])
+                with col_btn_apply:
+                    if st.button(f"✅ Thêm {len(selected_data)} bạn bè đã chọn vào danh sách giữ chuỗi", type="primary", use_container_width=True):
+                        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        added_count = 0
+                        updated_count = 0
+                        for sel in selected_data:
+                            uname = sel["username"]
+                            exist = next((t for t in targets if t.get("username", "").lower() == uname.lower()), None)
+                            sc = sel["streak_count"]
+                            rep = sel["friend_replied"]
+                            desc = f"Chuỗi {sc} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️" if sc > 0 else f"Bạn bè TikTok ⚡ (@{sel['nickname']})"
+                            if rep:
+                                desc += " • Đối phương đã rep! 🎉"
+
+                            if exist:
+                                exist["streak_count"] = sc
+                                exist["friend_replied"] = rep
+                                exist["nickname"] = sel["nickname"]
+                                exist["last_checked"] = now_str
+                                exist["status"] = desc
+                                updated_count += 1
+                            else:
+                                targets.append({
+                                    "username": uname,
+                                    "nickname": sel["nickname"],
+                                    "custom_msg": None,
+                                    "streak_count": sc,
+                                    "friend_replied": rep,
+                                    "last_sent": "Chưa gửi",
+                                    "status": desc + " [Đã chọn ⚡]",
+                                    "last_checked": now_str,
+                                    "is_friend": True,
+                                })
+                                added_count += 1
+
+                        bot.save_targets(targets)
+                        del st.session_state["scanned_inbox_candidates"]
+                        st.toast(f"Đã thêm {added_count} bạn mới, cập nhật {updated_count} bạn!", icon="🎉")
+                        st.success(f"🎉 **Đã lưu thành công!** Đã thêm **{added_count}** bạn mới và cập nhật **{updated_count}** bạn bè vào danh sách giữ chuỗi.")
                         time.sleep(1.2)
                         st.rerun()
-                    else:
-                        reason = scan_res.get("reason", "Vui lòng kiểm tra Cookie / Session ID.")
-                        st.warning(f"⚠️ Không thể quét từ TikTok API: {reason}")
+
+                with col_btn_cancel:
+                    if st.button("❌ Đóng bảng", use_container_width=True):
+                        del st.session_state["scanned_inbox_candidates"]
+                        st.rerun()
+
+        # Form thêm bạn bè: thu gọn thành 1 hàng Username | Câu nhắn | Nút Lưu
+        with st.expander("➕ Thêm bạn bè & Quét tự động từ TikTok", expanded=(len(targets) == 0)):
+            btn_auto_scan_friends = st.button(
+                "⚡ Tự Động Quét & Hiện Bảng Chọn Bạn Bè Từ Hộp Thư TikTok (1 Click)",
+                type="primary",
+                use_container_width=True,
+                help="Tự động trích xuất toàn bộ hội thoại từ hộp thư TikTok và hiện bảng cho bạn chọn",
+            )
+            if btn_auto_scan_friends:
+                st.session_state["trigger_scan_now"] = True
+                st.rerun()
             st.divider()
             with st.form("add_friend_form", clear_on_submit=True):
                 fc1, fc2, fc3 = st.columns([2.5, 3.5, 1.5], vertical_alignment="bottom")
