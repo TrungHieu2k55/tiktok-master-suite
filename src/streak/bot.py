@@ -367,9 +367,10 @@ class TikTokStreakBot:
 
     def _open_chat_box(self, driver, username: str):
         """
-        DIRECT CHAT ROUTING + PROFILE FALLBACK (Từ repo tiktok-streak-bot):
-        1. Ưu tiên: Truy cập trực tiếp https://www.tiktok.com/messages, click item hội thoại khớp username/nickname.
-        2. Dự phòng: Vào profile @username và click nút 'Nhắn tin' / 'Message' (data-e2e='message-button').
+        DIRECT CHAT ROUTING + PROFILE NAVIGATION (Chính xác 100% người nhận):
+        1. Vào trực tiếp trang cá nhân https://www.tiktok.com/@{username} và click 'Nhắn tin' / 'Message'
+           để điều hướng đúng hội thoại của người đó, tránh nhầm lẫn giữa các item bên cột trái.
+        2. Nếu đã ở /messages, tìm kiếm đúng conversation item tương ứng để kích hoạt.
         """
         if not driver:
             return None
@@ -383,7 +384,40 @@ class TikTokStreakBot:
             "textarea",
         ]
 
-        # CHIẾN LƯỢC 1: Direct Chat Routing qua https://www.tiktok.com/messages
+        # CHIẾN LƯỢC 1: Profile Navigation -> Mở đúng chat với @clean_user 100%
+        try:
+            profile_url = f"https://www.tiktok.com/@{clean_user}"
+            driver.get(profile_url)
+            time.sleep(2.5)
+
+            msg_btns = driver.find_elements(
+                By.CSS_SELECTOR,
+                "button[data-e2e='message-button'], [data-e2e='message-button']"
+            )
+            if msg_btns:
+                driver.execute_script("arguments[0].click();", msg_btns[0])
+                time.sleep(2.5)
+            else:
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                for btn in buttons:
+                    txt = btn.text.strip().lower()
+                    aria = (btn.get_attribute("aria-label") or "").lower()
+                    if any(k in txt or k in aria for k in ["nhắn tin", "message", "chat"]):
+                        driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(2.5)
+                        break
+
+            for sel in input_selectors:
+                try:
+                    elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                    if elems:
+                        return elems[0]
+                except Exception:
+                    continue
+        except Exception as e_prof:
+            log.debug("Profile navigation error @%s: %s", clean_user, e_prof)
+
+        # CHIẾN LƯỢC 2: Dự phòng qua danh sách hội thoại /messages
         try:
             curr_url = driver.current_url.lower()
             if "tiktok.com/messages" not in curr_url:
@@ -412,40 +446,6 @@ class TikTokStreakBot:
                     return elems[0]
         except Exception as e_msg:
             log.debug("Direct chat routing warning: %s", e_msg)
-
-        # CHIẾN LƯỢC 2: Profile Navigation Fallback
-        try:
-            profile_url = f"https://www.tiktok.com/@{clean_user}"
-            driver.get(profile_url)
-            time.sleep(3)
-
-            # Nút Nhắn tin / Message
-            msg_btns = driver.find_elements(
-                By.CSS_SELECTOR,
-                "button[data-e2e='message-button'], [data-e2e='message-button']"
-            )
-            if msg_btns:
-                driver.execute_script("arguments[0].click();", msg_btns[0])
-                time.sleep(3)
-            else:
-                buttons = driver.find_elements(By.TAG_NAME, "button")
-                for btn in buttons:
-                    txt = btn.text.strip().lower()
-                    aria = (btn.get_attribute("aria-label") or "").lower()
-                    if any(k in txt or k in aria for k in ["nhắn tin", "message", "chat"]):
-                        driver.execute_script("arguments[0].click();", btn)
-                        time.sleep(3)
-                        break
-
-            for sel in input_selectors:
-                try:
-                    elems = driver.find_elements(By.CSS_SELECTOR, sel)
-                    if elems:
-                        return elems[0]
-                except Exception:
-                    continue
-        except Exception as e_prof:
-            log.warning("Profile fallback error @%s: %s", clean_user, e_prof)
 
         return None
 
@@ -794,55 +794,67 @@ class TikTokStreakBot:
                     # Phân tích tương tác 2 chiều (bạn đã gửi & đối phương đã rep)
                     chat_data = driver.execute_script("""
                         const pane = document.querySelector("div[class*='DivChatArea'], div[class*='DivChatRoom'], div[class*='ChatBox']");
-                        if (!pane) return { messages: [] };
+                        if (!pane) return { timeline: [] };
                         const all = pane.querySelectorAll("div[class*='Time'], p[class*='Time'], span[class*='Time'], div[data-e2e='dm-new-chat-item']");
-                        let currentDate = '';
-                        const messages = [];
+                        let cur = '';
+                        const timeline = [];
                         all.forEach(el => {
                             if (el.getAttribute('data-e2e') === 'dm-new-chat-item') {
                                 const a = el.querySelector('a');
-                                const sender = a ? a.href.split('@').pop().toLowerCase() : '';
-                                messages.push({
-                                    sender,
+                                timeline.push({
+                                    type: 'msg',
+                                    sender: a ? a.href.split('@').pop().toLowerCase() : '',
                                     text: el.innerText.trim(),
-                                    dateTag: currentDate
+                                    divider: cur
                                 });
                             } else {
-                                const t = el.innerText.trim();
-                                if (t.includes('202') || t.includes('Today') || t.includes('Hôm nay') || t.includes('Yesterday')) {
-                                    currentDate = t;
-                                }
+                                cur = el.innerText.trim();
                             }
                         });
-                        return { messages };
+                        return { timeline };
                     """)
-                    msgs = chat_data.get("messages", [])
+                    timeline_items = chat_data.get("timeline", [])
+                    msgs = [item for item in timeline_items if item.get("type") == "msg"]
                     last_msg = msgs[-1].get("text", "").replace("\n", " ").strip() if msgs else ""
-                    
-                    last_date_tag = msgs[-1].get("dateTag", "") if msgs else ""
-                    recent_chunk = [m for m in msgs if m.get("dateTag") == last_date_tag] if last_date_tag else msgs[-8:]
-                    
-                    # Đọc thời gian hiển thị trên card hội thoại
-                    # Nếu có dạng HH:MM (ví dụ 00:23, 11:47) -> Tin nhắn phát sinh HÔM NAY!
-                    # Nếu có dạng MM/DD/YYYY (ví dụ 10/11/2026) -> Tin nhắn từ HÔM QUA hoặc cũ hơn!
-                    card_time_has_colon = bool(re.search(r'\b\d{1,2}:\d{2}\b', it.text))
-                    is_today = card_time_has_colon or ("today" in last_date_tag.lower()) or ("hôm nay" in last_date_tag.lower())
+
+                    card_lines = [line.strip() for line in it.text.split("\n") if line.strip()]
+                    card_last_line = card_lines[-1] if len(card_lines) >= 3 else ""
+                    card_time_has_colon = bool(re.search(r'^\b\d{1,2}:\d{2}\b$', card_last_line.strip()))
+
+                    clean_target = uname.strip().replace("@", "").lower()
+                    if not my_account:
+                        try:
+                            health_acc = self.check_session_health()
+                            my_account = (health_acc.get("username") or "").lower()
+                        except Exception:
+                            my_account = ""
 
                     i_sent = False
                     friend_replied = False
 
-                    if is_today:
-                        for m in recent_chunk:
-                            s = m.get("sender", "").lower()
-                            if s:
-                                if not my_account and s != uname.lower():
-                                    my_account = s
-                                if my_account and s == my_account.lower():
-                                    i_sent = True
-                                elif s == uname.lower() or (my_account and s != my_account.lower()):
-                                    friend_replied = True
+                    def _is_today_str(d_val: str) -> bool:
+                        if not d_val:
+                            return False
+                        dv = d_val.lower()
+                        return bool("today" in dv or "hôm nay" in dv or re.search(r'^\b\d{1,2}:\d{2}\b$', d_val.strip()))
 
-                    is_kept_today = bool(is_today and i_sent and friend_replied)
+                    for m in msgs:
+                        s = m.get("sender", "").lower()
+                        d = m.get("divider", "")
+                        if _is_today_str(d):
+                            if my_account and s == my_account:
+                                i_sent = True
+                            elif s == clean_target or (my_account and s and s != my_account):
+                                friend_replied = True
+
+                    if card_time_has_colon and msgs:
+                        last_s = msgs[-1].get("sender", "").lower()
+                        if my_account and last_s == my_account:
+                            i_sent = True
+                        elif last_s == clean_target or (my_account and last_s and last_s != my_account):
+                            friend_replied = True
+
+                    is_kept_today = bool(i_sent and friend_replied)
 
                     # Phát hiện streak từ avatar badge hoặc từ khoá trong nội dung chat
                     streak_count = 0
@@ -1136,64 +1148,79 @@ class TikTokStreakBot:
 
                     chat_data = driver.execute_script("""
                         const pane = document.querySelector("div[class*='DivChatArea'], div[class*='DivChatRoom'], div[class*='ChatBox']");
-                        if (!pane) return { messages: [] };
+                        if (!pane) return { timeline: [] };
                         const all = pane.querySelectorAll("div[class*='Time'], p[class*='Time'], span[class*='Time'], div[data-e2e='dm-new-chat-item']");
-                        let currentDate = '';
-                        const messages = [];
+                        let cur = '';
+                        const timeline = [];
                         all.forEach(el => {
                             if (el.getAttribute('data-e2e') === 'dm-new-chat-item') {
                                 const a = el.querySelector('a');
-                                const sender = a ? a.href.split('@').pop().toLowerCase() : '';
-                                messages.push({ sender, text: el.innerText.trim(), dateTag: currentDate });
+                                timeline.push({
+                                    type: 'msg',
+                                    sender: a ? a.href.split('@').pop().toLowerCase() : '',
+                                    text: el.innerText.trim(),
+                                    divider: cur
+                                });
                             } else {
-                                const t = el.innerText.trim();
-                                if (t.includes('202') || t.includes('Today') || t.includes('Hôm nay') || t.includes('Yesterday')) {
-                                    currentDate = t;
-                                }
+                                cur = el.innerText.trim();
                             }
                         });
-                        return { messages };
+                        return { timeline };
                     """)
-                    msgs = chat_data.get("messages", [])
+                    timeline_items = chat_data.get("timeline", [])
+                    msgs = [item for item in timeline_items if item.get("type") == "msg"]
                     last_msg_text = msgs[-1].get("text", "").replace("\n", " ").strip() if msgs else ""
-                    last_date_tag = msgs[-1].get("dateTag", "") if msgs else ""
-                    recent_chunk = [m for m in msgs if m.get("dateTag") == last_date_tag] if last_date_tag else msgs[-8:]
 
-                    # Kiểm tra thẻ hội thoại bên danh sách trái để xác định tin nhắn có phải HÔM NAY không
                     card_time_has_colon = False
                     try:
                         conv_items = driver.find_elements(By.CSS_SELECTOR, "div[data-e2e='dm-new-conversation-item']")
                         for cit in conv_items:
                             if username.lower() in cit.text.lower() or (target and target.get("nickname", "").lower() in cit.text.lower()):
-                                card_time_has_colon = bool(re.search(r'\b\d{1,2}:\d{2}\b', cit.text))
+                                c_lines = [l.strip() for l in cit.text.split("\n") if l.strip()]
+                                c_last = c_lines[-1] if len(c_lines) >= 3 else ""
+                                card_time_has_colon = bool(re.search(r'^\b\d{1,2}:\d{2}\b$', c_last.strip()))
                                 break
                     except Exception:
                         pass
 
-                    is_today_chat = card_time_has_colon or ("today" in last_date_tag.lower()) or ("hôm nay" in last_date_tag.lower())
+                    clean_target = username.strip().replace("@", "").lower()
+                    my_account = ""
+                    try:
+                        health_acc = self.check_session_health()
+                        my_account = (health_acc.get("username") or "").lower()
+                    except Exception:
+                        my_account = ""
 
                     i_sent_recently = False
                     friend_replied = False
-                    clean_target = username.strip().replace("@", "").lower()
 
-                    if is_today_chat:
-                        for m in recent_chunk:
-                            s = m.get("sender", "").lower()
-                            if s:
-                                if s == clean_target:
-                                    friend_replied = True
-                                else:
-                                    i_sent_recently = True
+                    def _is_today_str(d_val: str) -> bool:
+                        if not d_val:
+                            return False
+                        dv = d_val.lower()
+                        return bool("today" in dv or "hôm nay" in dv or re.search(r'^\b\d{1,2}:\d{2}\b$', d_val.strip()))
+
+                    for m in msgs:
+                        s = m.get("sender", "").lower()
+                        d = m.get("divider", "")
+                        if _is_today_str(d):
+                            if my_account and s == my_account:
+                                i_sent_recently = True
+                            elif s == clean_target or (my_account and s and s != my_account):
+                                friend_replied = True
+
+                    if card_time_has_colon and msgs:
+                        last_s = msgs[-1].get("sender", "").lower()
+                        if my_account and last_s == my_account:
+                            i_sent_recently = True
+                        elif last_s == clean_target or (my_account and last_s and last_s != my_account):
+                            friend_replied = True
 
                     already_sent_today = i_sent_recently or bool(last_sent and last_sent.startswith(today_str))
 
                     if already_sent_today and friend_replied:
-                        if not last_sent.startswith(today_str):
-                            self._update_target_on_send(username, now_str)
                         desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Hai bên đã rep qua lại, đã giữ chuỗi hôm nay! 🎉✅"
                     elif already_sent_today and not friend_replied:
-                        if not last_sent.startswith(today_str):
-                            self._update_target_on_send(username, now_str)
                         desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅ • Đang chờ đối phương gửi lại 💬"
                     elif not already_sent_today and friend_replied:
                         desc = f"Chuỗi {streak_count} ngày 🔥 • Đối phương đã rep! 💬 • Bạn chưa gửi chuỗi, cần rep trước 23:59! ⚠️"
