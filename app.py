@@ -496,6 +496,8 @@ with tabs[1]:
                     nick = c.get("nickname", u)
                     last_msg = c.get("last_msg", "")
                     rep = c.get("friend_replied", False)
+                    i_sent = c.get("i_sent", False)
+                    is_kept_today = c.get("is_kept_today", False)
                     sc_init = int(c.get("streak_count", 0) or 0)
                     is_already_added = u.lower() in existing_unames
 
@@ -510,9 +512,17 @@ with tabs[1]:
                     with col_c1:
                         checked = st.checkbox("", value=def_val, key=f"chk_cand_{idx}_{u}", label_visibility="collapsed")
                     with col_c2:
-                        rep_badge = " • <span style='color:#10b981;font-weight:600;'>Đã rep ✅</span>" if rep else " • <span style='color:#f59e0b;font-weight:600;'>Chưa rep 💬</span>"
+                        if is_kept_today:
+                            rep_badge = " • <span style='color:#10b981;font-weight:700;'>Hai bên đã rep, đã giữ chuỗi hôm nay! 🎉✅</span>"
+                        elif i_sent and not rep:
+                            rep_badge = " • <span style='color:#3b82f6;font-weight:600;'>Bạn đã gửi, chờ bạn kia rep 💬</span>"
+                        elif not i_sent and rep:
+                            rep_badge = " • <span style='color:#f59e0b;font-weight:600;'>Bạn kia đã rep, bạn chưa gửi! ⚠️</span>"
+                        else:
+                            rep_badge = " • <span style='color:#6b7280;font-weight:600;'>Cả hai chưa rep hôm nay 💬</span>"
+
                         already_tag = " <span style='color:#6366f1;font-size:11px;'>(Đã có trong list)</span>" if is_already_added else ""
-                        st.markdown(f"**{nick}** (@{u}){already_tag}<br><small style='color:#6b7280;'>{rep_badge}</small>", unsafe_allow_html=True)
+                        st.markdown(f"**{nick}** (@{u}){already_tag}<br><small>{rep_badge}</small>", unsafe_allow_html=True)
                     with col_c3:
                         msg_preview = last_msg[:50] + "..." if len(last_msg) > 50 else (last_msg or "*(Không có tin nhắn gần)*")
                         st.caption(f"💬 *{msg_preview}*")
@@ -525,6 +535,8 @@ with tabs[1]:
                             "nickname": nick,
                             "streak_count": streak_in,
                             "friend_replied": rep,
+                            "i_sent": i_sent,
+                            "is_kept_today": is_kept_today,
                             "last_msg": last_msg,
                         })
 
@@ -539,9 +551,16 @@ with tabs[1]:
                             exist = next((t for t in targets if t.get("username", "").lower() == uname.lower()), None)
                             sc = sel["streak_count"]
                             rep = sel["friend_replied"]
-                            desc = f"Chuỗi {sc} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️" if sc > 0 else f"Bạn bè TikTok ⚡ (@{sel['nickname']})"
-                            if rep:
-                                desc += " • Đối phương đã rep! 🎉"
+                            i_sent = sel.get("i_sent", False)
+                            is_kept = sel.get("is_kept_today", False)
+                            if is_kept:
+                                desc = f"Đang giữ chuỗi {sc} ngày 🔥 • Hai bên đã rep qua lại, đã giữ chuỗi hôm nay! 🎉✅"
+                            elif i_sent:
+                                desc = f"Đang giữ chuỗi {sc} ngày 🔥 • Bạn đã gửi hôm nay! ✅ • Đang chờ đối phương gửi lại 💬"
+                            elif rep:
+                                desc = f"Chuỗi {sc} ngày 🔥 • Đối phương đã rep! 💬 • Bạn chưa gửi chuỗi, cần rep trước 23:59! ⚠️"
+                            else:
+                                desc = f"Chuỗi {sc} ngày 🔥 • Cả hai chưa rep hôm nay • Cần gửi chuỗi trước 23:59! ⚠️"
 
                             if exist:
                                 exist["streak_count"] = sc

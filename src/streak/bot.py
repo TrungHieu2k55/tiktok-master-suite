@@ -791,29 +791,52 @@ class TikTokStreakBot:
                     if not uname:
                         continue
 
-                    # Kiểm tra bong bóng chat cuối cùng
-                    chat_items = driver.find_elements(
-                        By.CSS_SELECTOR,
-                        "div[data-e2e='dm-new-chat-item'], div[class*='DivChatItemWrapper']"
-                    )
-                    last_msg = ""
+                    # Phân tích tương tác 2 chiều (bạn đã gửi & đối phương đã rep)
+                    chat_data = driver.execute_script("""
+                        const pane = document.querySelector("div[class*='DivChatArea'], div[class*='DivChatRoom'], div[class*='ChatBox']");
+                        if (!pane) return { messages: [] };
+                        const all = pane.querySelectorAll("div[class*='Time'], p[class*='Time'], span[class*='Time'], div[data-e2e='dm-new-chat-item']");
+                        let currentDate = '';
+                        const messages = [];
+                        all.forEach(el => {
+                            if (el.getAttribute('data-e2e') === 'dm-new-chat-item') {
+                                const a = el.querySelector('a');
+                                const sender = a ? a.href.split('@').pop().toLowerCase() : '';
+                                messages.push({
+                                    sender,
+                                    text: el.innerText.trim(),
+                                    dateTag: currentDate
+                                });
+                            } else {
+                                const t = el.innerText.trim();
+                                if (t.includes('202') || t.includes('Today') || t.includes('Hôm nay') || t.includes('Yesterday')) {
+                                    currentDate = t;
+                                }
+                            }
+                        });
+                        return { messages };
+                    """)
+                    msgs = chat_data.get("messages", [])
+                    last_msg = msgs[-1].get("text", "").replace("\n", " ").strip() if msgs else ""
+                    
+                    last_date_tag = msgs[-1].get("dateTag", "") if msgs else ""
+                    recent_chunk = [m for m in msgs if m.get("dateTag") == last_date_tag] if last_date_tag else msgs[-8:]
+                    
+                    i_sent = False
                     friend_replied = False
-                    if chat_items:
-                        last_c = chat_items[-1]
-                        last_msg = last_c.text.replace("\n", " ").strip()
-                        links = [
-                            a.get_attribute("href")
-                            for a in last_c.find_elements(By.TAG_NAME, "a")
-                            if a.get_attribute("href")
-                        ]
-                        if links:
-                            sender = links[0].split("@")[-1].strip().lower()
-                            if not my_account and sender != uname.lower():
-                                my_account = sender
-                            if my_account and sender != my_account.lower():
+                    for m in recent_chunk:
+                        s = m.get("sender", "").lower()
+                        if s:
+                            if not my_account and s != uname.lower():
+                                my_account = s
+                            if my_account and s == my_account.lower():
+                                i_sent = True
+                            elif s == uname.lower() or (my_account and s != my_account.lower()):
                                 friend_replied = True
-                            elif not my_account and sender == uname.lower():
-                                friend_replied = True
+
+                    card_time_has_colon = bool(re.search(r'\b\d{1,2}:\d{2}\b', it.text))
+                    is_today = card_time_has_colon or ("today" in last_date_tag.lower()) or ("hôm nay" in last_date_tag.lower())
+                    is_kept_today = (i_sent and friend_replied)
 
                     # Phát hiện streak từ avatar badge hoặc từ khoá trong nội dung chat
                     streak_count = 0
@@ -841,6 +864,8 @@ class TikTokStreakBot:
                         "nickname": nick,
                         "streak_count": streak_count,
                         "friend_replied": friend_replied,
+                        "i_sent": i_sent,
+                        "is_kept_today": is_kept_today,
                         "last_msg": last_msg,
                         "source": "headless_inbox",
                     })
@@ -1103,44 +1128,57 @@ class TikTokStreakBot:
                                 streak_count = val
                                 break
 
-                    friend_replied = False
-                    i_sent_recently = False
-                    last_msg_text = ""
-                    try:
-                        all_bubbles = driver.find_elements(
-                            By.CSS_SELECTOR,
-                            "[data-e2e='chat-item'], div[class*='ChatMessage'], div[class*='message-item'], div[class*='chat-item']"
-                        )
-                        if all_bubbles:
-                            for b in all_bubbles[-8:]:
-                                b_html = (b.get_attribute("outerHTML") or "").lower()
-                                if any(k in b_html for k in ["self", "right", "outgoing", "mine", "chat-item-self"]):
-                                    i_sent_recently = True
+                    chat_data = driver.execute_script("""
+                        const pane = document.querySelector("div[class*='DivChatArea'], div[class*='DivChatRoom'], div[class*='ChatBox']");
+                        if (!pane) return { messages: [] };
+                        const all = pane.querySelectorAll("div[class*='Time'], p[class*='Time'], span[class*='Time'], div[data-e2e='dm-new-chat-item']");
+                        let currentDate = '';
+                        const messages = [];
+                        all.forEach(el => {
+                            if (el.getAttribute('data-e2e') === 'dm-new-chat-item') {
+                                const a = el.querySelector('a');
+                                const sender = a ? a.href.split('@').pop().toLowerCase() : '';
+                                messages.push({ sender, text: el.innerText.trim(), dateTag: currentDate });
+                            } else {
+                                const t = el.innerText.trim();
+                                if (t.includes('202') || t.includes('Today') || t.includes('Hôm nay') || t.includes('Yesterday')) {
+                                    currentDate = t;
+                                }
+                            }
+                        });
+                        return { messages };
+                    """)
+                    msgs = chat_data.get("messages", [])
+                    last_msg_text = msgs[-1].get("text", "").replace("\n", " ").strip() if msgs else ""
+                    last_date_tag = msgs[-1].get("dateTag", "") if msgs else ""
+                    recent_chunk = [m for m in msgs if m.get("dateTag") == last_date_tag] if last_date_tag else msgs[-8:]
 
-                            last_bubble = all_bubbles[-1]
-                            last_msg_text = last_bubble.text.strip().replace("\n", " ")
-                            last_html = (last_bubble.get_attribute("outerHTML") or "").lower()
-                            if "self" not in last_html and "right" not in last_html and "outgoing" not in last_html:
+                    i_sent_recently = False
+                    friend_replied = False
+                    clean_target = username.strip().replace("@", "").lower()
+
+                    for m in recent_chunk:
+                        s = m.get("sender", "").lower()
+                        if s:
+                            if s == clean_target:
                                 friend_replied = True
-                    except Exception as e_msg:
-                        log.debug("Lỗi phân tích bong bóng chat: %s", e_msg)
+                            else:
+                                i_sent_recently = True
 
                     already_sent_today = i_sent_recently or (last_sent and last_sent.startswith(today_str))
 
-                    if already_sent_today:
+                    if already_sent_today and friend_replied:
                         if not last_sent.startswith(today_str):
                             self._update_target_on_send(username, now_str)
-                        desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
-                        if friend_replied:
-                            desc += " • Đối phương đã rep! 🎉"
-                        else:
-                            desc += " • Đang chờ đối phương gửi lại 💬"
+                        desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Hai bên đã rep qua lại, đã giữ chuỗi hôm nay! 🎉✅"
+                    elif already_sent_today and not friend_replied:
+                        if not last_sent.startswith(today_str):
+                            self._update_target_on_send(username, now_str)
+                        desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅ • Đang chờ đối phương gửi lại 💬"
+                    elif not already_sent_today and friend_replied:
+                        desc = f"Chuỗi {streak_count} ngày 🔥 • Đối phương đã rep! 💬 • Bạn chưa gửi chuỗi, cần rep trước 23:59! ⚠️"
                     else:
-                        desc = f"Chuỗi {streak_count} ngày 🔥" if (streak_found or streak_count > 0) else "Đã kết nối"
-                        if friend_replied:
-                            desc += " • Đối phương đã rep! ✅ (Bạn chưa gửi chuỗi)"
-                        else:
-                            desc += " • Cần gửi chuỗi trước 23:59! ⚠️"
+                        desc = f"Chuỗi {streak_count} ngày 🔥 • Cả hai chưa rep hôm nay • Cần gửi chuỗi trước 23:59! ⚠️"
 
                     desc += " [Headless ⚡]"
                     self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
