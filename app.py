@@ -726,7 +726,7 @@ with tabs[0]:
                                     else:
                                         st.error("Gửi thất bại!")
 
-                    # Cột 4: Menu tác vụ ba chấm gọn gàng (Check, Gửi lại, Đã gửi tay, Hú Hú, Xoá có xác nhận)
+                    # Cột 4: Menu tác vụ ba chấm gọn gàng (Check, Sửa tin nhắn, Gửi tay, Hú Hú, Xoá)
                     with col_menu:
                         pop_item = st.popover("⋯", use_container_width=True)
                         with pop_item:
@@ -746,6 +746,18 @@ with tabs[0]:
                                         st.rerun()
                                     except Exception as ex_c:
                                         st.error(f"Lỗi: {ex_c}")
+
+                            # Chỉnh sửa tin nhắn giữ chuỗi riêng
+                            with st.expander("Chỉnh sửa tin nhắn", icon=":material/edit:"):
+                                with st.form(f"edit_msg_form_{idx}"):
+                                    curr_msg = t.get("custom_msg") or ""
+                                    new_msg_val = st.text_input("Nội dung gửi:", value=curr_msg, placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥 (để trống: ngẫu nhiên)")
+                                    btn_save_msg = st.form_submit_button("Lưu tin nhắn", use_container_width=True, type="primary")
+                                    if btn_save_msg:
+                                        t["custom_msg"] = new_msg_val.strip() if new_msg_val.strip() else None
+                                        bot.save_targets(targets)
+                                        st.toast(f"Đã cập nhật tin nhắn cho @{t['username']}!", icon=":material/check:")
+                                        st.rerun()
 
                             # Đánh dấu đã gửi bằng tay trên điện thoại
                             if st.button("Đã gửi trên điện thoại", key=f"sub_man_{idx}", use_container_width=True, icon=":material/done_all:"):
