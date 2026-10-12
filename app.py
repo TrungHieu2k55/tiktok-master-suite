@@ -28,14 +28,14 @@ from src.research.tiktok_api_hub import (
 from src.streak.bot import TikTokStreakBot
 from src.streak.config import DEFAULT_MESSAGES, HU_HU_SPAM_MESSAGES, SESSION_DIR, STREAK_CONFIG_FILE
 from src.streak.scheduler import global_scheduler
-from src.ui.styles import inject_css
+from src.ui.theme import inject_css
 from src.ui.auth import render_login_screen, is_authenticated, is_admin, get_current_user, logout, update_admin_password
 from src.utils.validators import extract_video_id, is_valid_video_url
 
 # 1. Cấu hình trang với layout wide
 st.set_page_config(
-    page_title="TikTok Streak Master 🔥",
-    page_icon="🔥",
+    page_title="TikTok Suite Master",
+    page_icon=":material/bolt:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -61,34 +61,36 @@ profile_exists = (SESSION_DIR / "chrome_tiktok_profile").exists()
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("""
-    <div class="sidebar-brand">
-        <img src="https://upload.wikimedia.org/wikipedia/en/a/a9/TikTok_logo.svg" width="36" />
+    <div class="sidebar-brand-box">
+        <img src="https://upload.wikimedia.org/wikipedia/en/a/a9/TikTok_logo.svg" width="28" />
         <div>
-            <div class="sidebar-brand-title">TikTok Streak Bot</div>
-            <div style="font-size: 0.8rem; color: #94A3B8;">v2.7 • Live Log UI Suite</div>
+            <div class="sidebar-brand-name">TikTok Suite</div>
+            <div class="sidebar-brand-ver">v2.8 • Dashboard tối giản</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Hiển thị tài khoản đang đăng nhập & Nút Đăng xuất
+    # KHỐI 1: TÀI KHOẢN
+    st.markdown('<div class="sidebar-section-title">Tài khoản</div>', unsafe_allow_html=True)
     with st.container(border=True):
-        st.markdown(f"👤 **{user_name}**")
-        role_badge = "badge-success" if is_admin() else "badge-warning"
-        st.markdown(f'<span class="status-badge {role_badge}">Vai trò: {user_role.upper()}</span>', unsafe_allow_html=True)
-        st.write("")
-        c_so1, c_so2 = st.columns([1, 1])
-        with c_so1:
-            if st.button("🚪 Đăng xuất", width="stretch", type="secondary"):
-                logout()
-        with c_so2:
-            if is_admin():
-                pop_pw = st.popover("🔑 Đổi pass", width="stretch")
-                with pop_pw:
+        c_acc_l, c_acc_r = st.columns([3, 2], vertical_alignment="center")
+        with c_acc_l:
+            st.markdown(f"**{user_name}**")
+            chip_role = "chip-success" if is_admin() else "chip-neutral"
+            st.markdown(f'<span class="status-chip {chip_role}">{user_role.upper()}</span>', unsafe_allow_html=True)
+        with c_acc_r:
+            pop_user = st.popover("Cài đặt", use_container_width=True)
+            with pop_user:
+                st.markdown("**Tài khoản**")
+                if st.button("Đăng xuất", use_container_width=True, type="secondary", icon=":material/logout:"):
+                    logout()
+                if is_admin():
+                    st.divider()
                     st.markdown("**Đổi mật khẩu Admin**")
                     with st.form("change_admin_pw_form", clear_on_submit=True):
                         new_pw = st.text_input("Mật khẩu mới:", type="password")
                         confirm_pw = st.text_input("Nhập lại mật khẩu:", type="password")
-                        sub_pw = st.form_submit_button("Lưu mật khẩu", type="primary", width="stretch")
+                        sub_pw = st.form_submit_button("Lưu mật khẩu", type="primary", use_container_width=True)
                         if sub_pw:
                             if not new_pw or len(new_pw) < 6:
                                 st.error("Mật khẩu phải từ 6 ký tự trở lên!")
@@ -97,7 +99,7 @@ with st.sidebar:
                             else:
                                 if update_admin_password(new_pw):
                                     st.success("Đổi mật khẩu thành công!")
-                                    st.toast("Đã lưu mật khẩu Admin mới!", icon="🔑")
+                                    st.toast("Đã lưu mật khẩu Admin mới!", icon=":material/key:")
                                     time.sleep(1)
                                     st.rerun()
                                 else:
@@ -105,275 +107,204 @@ with st.sidebar:
 
     st.write("")
 
-    # Nhóm Hẹn giờ tự động linh hoạt (Custom Cron / Hours)
+    # KHỐI 2: GIỜ HẸN & BÁO ĐỘNG
     from src.streak.scheduler import load_scheduler_config, save_scheduler_config
     sched_cfg = load_scheduler_config()
-    st.markdown("#### 🌙 Vệ tinh hẹn giờ & Hú Hú")
-    auto_sched = st.toggle("Kích hoạt chạy ngầm tự động", value=global_scheduler.is_running)
-    if auto_sched != global_scheduler.is_running:
-        if auto_sched:
-            global_scheduler.start()
-            st.toast("Đã bật chạy ngầm tự động!", icon="🌙")
-        else:
-            global_scheduler.stop()
-            st.toast("Đã tắt chạy ngầm!", icon="🛑")
-        st.rerun()
+    st.markdown('<div class="sidebar-section-title">Giờ hẹn tự động</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        auto_sched = st.toggle("Canh gác ngầm", value=global_scheduler.is_running)
+        if auto_sched != global_scheduler.is_running:
+            if auto_sched:
+                global_scheduler.start()
+                st.toast("Đã kích hoạt canh gác ngầm!", icon=":material/alarm_on:")
+            else:
+                global_scheduler.stop()
+                st.toast("Đã tạm dừng canh gác!", icon=":material/alarm_off:")
+            st.rerun()
 
-    pop_sched_cfg = st.popover("⚙️ Cài đặt khung giờ", width="stretch")
-    with pop_sched_cfg:
-        st.markdown("**Cấu Hình Khung Giờ Chạy Ngầm**")
-        st.caption("Tự động gửi giữ chuỗi ban ngày & kích hoạt Hú Hú báo động ban đêm.")
-        with st.form("custom_sched_form"):
-            h1 = st.number_input("Khung giờ gửi #1 (Sáng):", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[0] if len(sched_cfg.get("streak_hours", [8, 20])) > 0 else 8, step=1)
-            h2 = st.number_input("Khung giờ gửi #2 (Tối):", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[1] if len(sched_cfg.get("streak_hours", [8, 20])) > 1 else 20, step=1)
-            huhu_time_val = st.text_input("Giờ khẩn cấp HÚ HÚ (HH:MM):", value=sched_cfg.get("huhu_time", "23:30"), help="Ví dụ: 23:30 hoặc 23:45")
-            sub_sched = st.form_submit_button("💾 Lưu Cài Đặt Giờ", width="stretch", type="primary")
-            if sub_sched:
-                sched_cfg["streak_hours"] = sorted(list(set([int(h1), int(h2)])))
-                sched_cfg["huhu_time"] = huhu_time_val.strip() if huhu_time_val.strip() else "23:30"
-                save_scheduler_config(sched_cfg)
-                st.success("Đã cập nhật khung giờ thành công!")
-                time.sleep(0.5)
-                st.rerun()
-
-    if global_scheduler.is_running:
         hrs_str = ", ".join([f"{h:02d}h" for h in sched_cfg.get("streak_hours", [8, 20])])
         hh_str = sched_cfg.get("huhu_time", "23:30")
-        st.success(f"🟢 Đang canh gác: Gửi ({hrs_str}) • Hú Hú ({hh_str})")
-    else:
-        st.caption("⚪ Chế độ hẹn giờ đang tắt")
-
-    st.write("")
-
-    # Nhóm Phiên đăng nhập (Live Health Check)
-    st.markdown("#### 🔐 Phiên đăng nhập")
-    saved_cookie = bot.load_session_cookie_string()
-    health_res = bot.check_session_health() if saved_cookie else {"status": "none", "valid": False, "expired": False}
-
-    if health_res.get("expired"):
-        st.error("🔴 Phiên TikTok đã hết hạn!")
-        st.caption("⚠️ Token TikTok đã hết hạn. Hãy bấm nút đỏ bên dưới để cập nhật sessionid mới.")
-        cookie_label = "🔴 Hết hạn"
-    elif health_res.get("valid"):
-        u_tag = health_res.get("username")
-        tag_str = f" (@{u_tag})" if u_tag else ""
-        st.success(f"🟢 Phiên TikTok hoạt động{tag_str}")
-        cookie_label = "🟢 Đã nạp"
-    elif profile_exists:
-        st.success("🟢 Phiên Chrome Local")
-        cookie_label = "🟢 Đã nạp"
-    else:
-        st.warning("🟡 Chưa có phiên TikTok")
-        cookie_label = "🍪 Nạp Cookie"
-
-    is_cloud_env = bool(os.environ.get("STREAMLIT_SERVER_PORT") or (os.name != "nt"))
-    c_lg1, c_lg2 = st.columns([1.1, 1.1])
-    with c_lg1:
-        if is_cloud_env:
-            st.button("🔑 Đăng nhập", width="stretch", type="secondary", disabled=True, help="Đăng nhập tự động chỉ chạy trên localhost máy tính cá nhân")
+        if global_scheduler.is_running:
+            st.markdown(f'<div class="connection-status"><span class="status-dot dot-success"></span> Đang chạy: {hrs_str} • Hú {hh_str}</div>', unsafe_allow_html=True)
         else:
-            if st.button("🔑 Đăng nhập", width="stretch", type="secondary", help="Mở Chrome trên máy tính để đăng nhập"):
-                with st.spinner("Đang mở Chrome... Hãy đăng nhập và đóng trình duyệt khi xong."):
-                    bot.run_login_sync()
-                    st.success("Đã đồng bộ phiên đăng nhập!")
+            st.markdown('<div class="connection-status"><span class="status-dot dot-neutral"></span> Đang tạm dừng</div>', unsafe_allow_html=True)
+
+        with st.expander("Cài đặt khung giờ"):
+            with st.form("custom_sched_form"):
+                h1 = st.number_input("Khung giờ sáng:", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[0] if len(sched_cfg.get("streak_hours", [8, 20])) > 0 else 8, step=1)
+                h2 = st.number_input("Khung giờ tối:", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[1] if len(sched_cfg.get("streak_hours", [8, 20])) > 1 else 20, step=1)
+                huhu_time_val = st.text_input("Giờ khẩn cấp Hú Hú:", value=sched_cfg.get("huhu_time", "23:30"))
+                sub_sched = st.form_submit_button("Lưu cài đặt", use_container_width=True, type="primary")
+                if sub_sched:
+                    sched_cfg["streak_hours"] = sorted(list(set([int(h1), int(h2)])))
+                    sched_cfg["huhu_time"] = huhu_time_val.strip() if huhu_time_val.strip() else "23:30"
+                    save_scheduler_config(sched_cfg)
+                    st.success("Đã cập nhật khung giờ!")
+                    time.sleep(0.5)
                     st.rerun()
-    with c_lg2:
-        pop_cookie = st.popover(cookie_label, width="stretch")
-        with pop_cookie:
-            st.markdown("**Quản Lý Phiên TikTok**")
-            if health_res.get("expired"):
-                st.error("❌ Cookie hiện tại đã hết hạn (Session Expired)!")
-                st.caption("TikTok đã vô hiệu hóa token này. Vui lòng copy sessionid mới từ trình duyệt và lưu lại bên dưới:")
-            elif health_res.get("valid"):
-                u_n = health_res.get("username", "")
-                st.success(f"🟢 Đã kết nối tài khoản: **@{u_n}**")
-                if st.button("🗑️ Xóa phiên đăng nhập", width="stretch"):
-                    bot.save_session_cookie_string("")
-                    st.rerun()
-            elif saved_cookie:
-                preview = (saved_cookie[:25] + "...") if len(saved_cookie) > 25 else saved_cookie
-                st.success(f"🟢 Đang kết nối: `{preview}`")
-                if st.button("🗑️ Xóa phiên đăng nhập", width="stretch"):
-                    bot.save_session_cookie_string("")
-                    st.rerun()
-            else:
-                st.info("⚪ Chưa có cookie phiên")
-
-            st.caption("Dán sessionid hoặc Cookie mới vào đây:")
-            with st.form("cookie_form"):
-                cookie_in = st.text_area("Chuỗi Cookie / sessionid:", placeholder="sessionid=xxxx; ...", height=70)
-                sub_cookie = st.form_submit_button("💾 Lưu Phiên Mới", type="primary", width="stretch")
-                if sub_cookie and cookie_in.strip():
-                    bot.save_session_cookie_string(cookie_in.strip())
-                    health_chk = bot.check_session_health()
-                    if health_chk.get("valid"):
-                        st.toast(f"Đã kết nối tài khoản @{health_chk.get('username')}!", icon="🟢")
-                        st.success(f"🎉 Kết nối thành công tài khoản @{health_chk.get('username')}!")
-                    else:
-                        st.warning(f"⚠️ {health_chk.get('msg')}")
-                    time.sleep(0.8)
-                    st.rerun()
-
-            with st.expander("💡 Cách lấy sessionid nhanh (10 giây)"):
-                st.markdown("""
-1. Mở [tiktok.com](https://www.tiktok.com) trên trình duyệt máy tính đã đăng nhập.
-2. Bấm phím **F12** -> chọn tab **Application** (Ứng dụng).
-3. Cột bên trái: **Cookies** -> `https://www.tiktok.com`.
-4. Tìm dòng tên **sessionid** -> Copy toàn bộ chuỗi **Value**.
-5. Dán vào ô trên rồi bấm **Lưu Phiên Mới**!
-""")
-
-            if not is_cloud_env:
-                st.divider()
-                st.caption("Hoặc trích xuất tự động (nếu chạy Local Chrome):")
-                if st.button("⚡ Tự Động Lấy Cookie từ Chrome", key="btn_auto_extract_cookie_chrome", width="stretch"):
-                    with st.spinner("Đang trích xuất phiên từ Chrome..."):
-                        c_res = bot.auto_sync_local_cookies()
-                        if c_res:
-                            st.success("🎉 Đã lấy Cookie thành công!")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            st.warning("Chưa tìm thấy phiên. Hãy bấm 'Đăng nhập' trước!")
-            else:
-                st.caption("💡 *Đang chạy trên Streamlit Cloud: Vui lòng dán sessionid vào ô trên rồi bấm 'Lưu Phiên Mới'.*")
-
-
 
     st.write("")
-    st.markdown("#### ☁️ Supabase Cloud DB")
-    from src.storage.supabase_client import (
-        get_supabase_config,
-        save_supabase_config,
-        is_supabase_configured,
-        test_supabase_connection,
-    )
-    supa_ok = is_supabase_configured()
-    supa_badge = "🟢 Đã kết nối" if supa_ok else "⚪ Chưa cấu hình"
-    pop_supa = st.popover(f"☁️ Supabase ({supa_badge})", width="stretch")
-    with pop_supa:
-        st.markdown("**Kết Nối Supabase Database**")
-        st.caption("Lưu trữ danh sách chuỗi, cookie và mật khẩu vĩnh viễn trên Cloud.")
-        cur_u, cur_k = get_supabase_config()
-        with st.form("supa_form"):
-            new_u = st.text_input("Project URL:", value=cur_u, placeholder="https://xxx.supabase.co")
-            new_k = st.text_input("Anon / Public Key:", value=cur_k, type="password", placeholder="eyJhbGciOi...")
-            sub_supa = st.form_submit_button("💾 Lưu Cấu Hình", width="stretch", type="primary")
-            if sub_supa:
-                save_supabase_config(new_u, new_k)
-                st.success("Đã lưu thông tin Supabase!")
-                time.sleep(0.5)
-                st.rerun()
 
-        if is_supabase_configured():
-            if st.button("🔌 Kiểm tra kết nối", width="stretch"):
-                with st.spinner("Đang ping Supabase..."):
-                    ok_conn, msg_conn = test_supabase_connection()
-                    if ok_conn:
-                        st.success(msg_conn)
-                    else:
-                        st.warning(msg_conn)
+    # KHỐI 3: KẾT NỐI (TIKTOK & SUPABASE)
+    st.markdown('<div class="sidebar-section-title">Kết nối dịch vụ</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        saved_cookie = bot.load_session_cookie_string()
+        health_res = bot.check_session_health() if saved_cookie else {"status": "none", "valid": False, "expired": False}
+        is_cloud_env = bool(os.environ.get("STREAMLIT_SERVER_PORT") or (os.name != "nt"))
 
-        with st.expander("📋 Lệnh SQL tạo bảng (Chỉ cần chạy 1 lần)"):
-            st.code("""create table if not exists tiktok_suite_storage (
+        # Dòng 1: TikTok Session Status
+        if health_res.get("expired"):
+            tk_dot = "dot-danger"
+            tk_text = "Hết hạn"
+        elif health_res.get("valid"):
+            tk_dot = "dot-success"
+            u_tag = health_res.get("username")
+            tk_text = f"Hoạt động (@{u_tag})" if u_tag else "Hoạt động"
+        elif profile_exists:
+            tk_dot = "dot-success"
+            tk_text = "Chrome Local"
+        else:
+            tk_dot = "dot-warning"
+            tk_text = "Chưa kết nối"
+
+        st.markdown(f'''
+        <div class="connection-row">
+            <span>TikTok Session</span>
+            <span class="connection-status"><span class="status-dot {tk_dot}"></span> {tk_text}</span>
+        </div>
+        ''', unsafe_allow_html=True)
+
+        col_tk1, col_tk2 = st.columns([1, 1])
+        with col_tk1:
+            pop_cookie = st.popover("Quản lý phiên", use_container_width=True)
+            with pop_cookie:
+                st.markdown("**Phiên đăng nhập TikTok**")
+                if health_res.get("expired"):
+                    st.error("Phiên hiện tại đã hết hạn (Session Expired). Vui lòng cập nhật sessionid mới:")
+                elif health_res.get("valid"):
+                    u_n = health_res.get("username", "")
+                    st.success(f"Tài khoản kết nối: **@{u_n}**")
+                    if st.button("Xóa phiên này", use_container_width=True, type="secondary"):
+                        bot.save_session_cookie_string("")
+                        st.rerun()
+                elif saved_cookie:
+                    preview = (saved_cookie[:25] + "...") if len(saved_cookie) > 25 else saved_cookie
+                    st.info(f"Đang dùng: `{preview}`")
+                    if st.button("Xóa phiên này", use_container_width=True, type="secondary"):
+                        bot.save_session_cookie_string("")
+                        st.rerun()
+                else:
+                    st.caption("Chưa có cookie phiên.")
+
+                with st.form("cookie_form"):
+                    cookie_in = st.text_area("Chuỗi Cookie / sessionid:", placeholder="sessionid=xxxx; ...", height=70)
+                    sub_cookie = st.form_submit_button("Lưu phiên mới", type="primary", use_container_width=True)
+                    if sub_cookie and cookie_in.strip():
+                        bot.save_session_cookie_string(cookie_in.strip())
+                        health_chk = bot.check_session_health()
+                        if health_chk.get("valid"):
+                            st.toast(f"Đã kết nối tài khoản @{health_chk.get('username')}!", icon=":material/check:")
+                        st.rerun()
+
+                with st.expander("Cách lấy sessionid (10 giây)"):
+                    st.markdown('''
+1. Mở [tiktok.com](https://www.tiktok.com) trên trình duyệt đã đăng nhập.
+2. Bấm phím **F12** -> chọn tab **Application**.
+3. Cột trái: **Cookies** -> `https://www.tiktok.com`.
+4. Tìm dòng **sessionid** -> Copy toàn bộ chuỗi Value.
+5. Dán vào ô trên và bấm **Lưu phiên mới**.
+''')
+        with col_tk2:
+            if is_cloud_env:
+                st.button("Đăng nhập", use_container_width=True, type="secondary", disabled=True, help="Đăng nhập tự động chỉ chạy trên máy tính cá nhân")
+            else:
+                if st.button("Đăng nhập", use_container_width=True, type="secondary", help="Mở Chrome trên máy để đăng nhập"):
+                    with st.spinner("Đang mở Chrome..."):
+                        bot.run_login_sync()
+                        st.rerun()
+
+        st.divider()
+
+        # Dòng 2: Supabase Status
+        from src.storage.supabase_client import (
+            get_supabase_config,
+            save_supabase_config,
+            is_supabase_configured,
+            test_supabase_connection,
+        )
+        supa_ok = is_supabase_configured()
+        supa_dot = "dot-success" if supa_ok else "dot-neutral"
+        supa_text = "Đã kết nối" if supa_ok else "Chưa cấu hình"
+
+        st.markdown(f'''
+        <div class="connection-row">
+            <span>Supabase Cloud</span>
+            <span class="connection-status"><span class="status-dot {supa_dot}"></span> {supa_text}</span>
+        </div>
+        ''', unsafe_allow_html=True)
+
+        pop_supa = st.popover("Cấu hình Supabase", use_container_width=True)
+        with pop_supa:
+            st.markdown("**Supabase Cloud Database**")
+            st.caption("Lưu trữ danh sách chuỗi, cookie và cấu hình an toàn trên Cloud.")
+            cur_u, cur_k = get_supabase_config()
+            with st.form("supa_form"):
+                new_u = st.text_input("Project URL:", value=cur_u, placeholder="https://xxx.supabase.co")
+                new_k = st.text_input("Anon Key:", value=cur_k, type="password", placeholder="eyJhbGciOi...")
+                sub_supa = st.form_submit_button("Lưu cấu hình", use_container_width=True, type="primary")
+                if sub_supa:
+                    save_supabase_config(new_u, new_k)
+                    st.success("Đã lưu thông tin!")
+                    time.sleep(0.5)
+                    st.rerun()
+
+            if is_supabase_configured():
+                if st.button("Kiểm tra kết nối", use_container_width=True, type="secondary"):
+                    with st.spinner("Đang kiểm tra kết nối..."):
+                        ok_conn, msg_conn = test_supabase_connection()
+                        if ok_conn:
+                            st.success(msg_conn)
+                        else:
+                            st.warning(msg_conn)
+
+            with st.expander("Lệnh SQL khởi tạo bảng"):
+                st.code('''create table if not exists tiktok_suite_storage (
     key text primary key,
     value jsonb,
     updated_at timestamp with time zone default now()
 );
 alter table tiktok_suite_storage enable row level security;
-create policy "Allow all operations for anon" on tiktok_suite_storage for all using (true) with check (true);""", language="sql")
+create policy "Allow all operations for anon" on tiktok_suite_storage for all using (true) with check (true);''', language="sql")
 
 
 # ---------------------------------------------------------------------------
-# TIÊU ĐỀ CHÍNH: GỌN GÀNG, KHÔNG ĐẨY SÂU NỘI DUNG
+# TIÊU ĐỀ CHÍNH: GIAO DIỆN SAAS TỐI GIẢN
 # ---------------------------------------------------------------------------
-st.markdown("""
-<div class="hero-banner">
-    <h1 class="hero-title">TikTok Streak Master 🔥</h1>
-    <p class="hero-desc">Bảng điều khiển tự động giữ chuỗi TikTok & Thu thập dữ liệu video, bình luận thông minh</p>
+bot_status_chip = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Đang canh gác</span>' if global_scheduler.is_running else '<span class="status-chip chip-neutral"><span class="status-dot dot-neutral"></span> Tạm dừng</span>'
+
+st.markdown(f'''
+<div class="saas-header">
+    <div class="saas-header-left">
+        <h1 class="saas-header-title">TikTok Streak Suite</h1>
+        <p class="saas-header-desc">Hệ thống tự động hoá giữ chuỗi TikTok & Phân tích dữ liệu API</p>
+    </div>
+    <div>
+        {bot_status_chip}
+    </div>
 </div>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
 tabs = st.tabs([
-    "🌐 Khám Phá Full API - RAW JSON",
-    "🔥 Quản Lý Giữ Chuỗi (Streak & Hú Hú)",
-    "📥 Cào Dữ Liệu Video & Bình Luận",
-    "📊 Thống Kê & Phân Tích Dữ Liệu",
+    "Quản lý giữ chuỗi",
+    "Thu thập dữ liệu",
+    "Thống kê & Phân tích",
+    "Nâng cao (RAW JSON)",
 ])
 
 # ---------------------------------------------------------------------------
-# TAB 0: API EXPLORER
+# TAB 0: QUẢN LÝ GIỮ CHUỖI STREAK
 # ---------------------------------------------------------------------------
 with tabs[0]:
-    st.subheader("🌐 TikTok Full API Explorer - Trích Xuất & Xuất RAW JSON")
-    st.caption("Truy vấn trực tiếp toàn bộ Endpoint API chính thống & gateway công khai của TikTok. Hiển thị cây JSON đầy đủ và tải file JSON chỉ với 1 cú click.")
-
-    api_choice = st.selectbox(
-        "Chọn Endpoint API TikTok cần lấy JSON:",
-        [
-            "1. Item Detail (Video full specs, MP4 no-watermark, Music MP3, Stats)",
-            "2. Comment List (Toàn bộ bình luận, Tác giả, Like count, Cursor)",
-            "3. Comment Reply (Bình luận con / Phản hồi tầng 2)",
-            "4. User Profile (Hồ sơ Creator, Tích xanh, Lượt follow, Giỏ hàng Shop)",
-            "5. Search API (Tìm kiếm Video hoặc Creator theo từ khoá)",
-            "6. Live Room Webcast (Thông tin Livestream, Phòng Live)",
-        ],
-    )
-
-    c_p1, c_p2 = st.columns([3, 1], vertical_alignment="bottom")
-    with c_p1:
-        if "4." in api_choice:
-            placeholder_text = "ví dụ: khaby.lame hoặc @khaby.lame"
-        elif "5." in api_choice:
-            placeholder_text = "ví dụ: nấu ăn, hài hước, trending"
-        elif "6." in api_choice:
-            placeholder_text = "ví dụ: username live hoặc room_id"
-        else:
-            placeholder_text = "ví dụ: https://www.tiktok.com/@scout2015/video/6718335390845095173 hoặc 6718335390845095173"
-        in_val = st.text_input("Nhập tham số (URL Video / Video ID / Username / Từ khoá):", placeholder=placeholder_text)
-    with c_p2:
-        b_call = st.button("🚀 Lấy API & Xuất JSON", type="primary", width="stretch")
-
-    if b_call:
-        if not in_val.strip():
-            st.error("❌ Vui lòng nhập tham số!")
-        else:
-            with st.spinner("⏳ Đang gửi request tới TikTok API Hub..."):
-                raw_res = {}
-                p_clean = in_val.strip()
-                if "1." in api_choice:
-                    raw_res = query_video_full_api(p_clean)
-                elif "2." in api_choice:
-                    raw_res = query_comments_full_api(p_clean, count=50)
-                elif "3." in api_choice:
-                    raw_res = query_comment_replies_api(p_clean, count=20)
-                elif "4." in api_choice:
-                    raw_res = query_user_profile_api(p_clean)
-                elif "5." in api_choice:
-                    raw_res = query_search_api(p_clean)
-                elif "6." in api_choice:
-                    raw_res = query_live_room_api(p_clean)
-
-            if raw_res.get("status") in ["success", "success_oembed"]:
-                st.success("✅ Đã nhận thành công dữ liệu JSON từ TikTok!")
-            elif raw_res.get("status") == "info":
-                st.info(raw_res.get("message", "Đã xử lý yêu cầu."))
-            else:
-                st.warning(f"⚠️ Kết quả: {raw_res.get('message', 'Không lấy được dữ liệu chi tiết')}")
-
-            cj1, cj2 = st.columns([3, 1], vertical_alignment="center")
-            with cj1:
-                st.markdown("#### 🌳 Cấu trúc Dữ liệu JSON:")
-            with cj2:
-                j_bytes = json.dumps(raw_res, ensure_ascii=False, indent=2).encode("utf-8")
-                st.download_button("📥 Tải File JSON", data=j_bytes, file_name="tiktok_api_response.json", mime="application/json", width="stretch")
-
-            st.json(raw_res)
-
-# ---------------------------------------------------------------------------
-# TAB 1: QUẢN LÝ GIỮ CHUỖI STREAK
-# ---------------------------------------------------------------------------
-with tabs[1]:
     if not is_admin():
         st.warning("🔒 **Khu vực giới hạn quyền hạn!**")
         st.info("Tính năng **Giữ Chuỗi & Hú Hú Cá Nhân** chỉ dành riêng cho tài khoản **Admin** để đảm bảo bảo mật tài khoản Chrome cá nhân. Bạn đang đăng nhập với tư cách **Khách (Guest)** nên chỉ có thể dùng các tính năng tra cứu API và Phân tích ở Tab khác.")
@@ -381,7 +312,7 @@ with tabs[1]:
         targets = bot.load_targets()
 
 
-        # Hàng 4 Metric: đồng đều chiều cao với st.container(border=True)
+        # Hàng 4 Thẻ Metric SaaS đồng đều
         k1, k2, k3, k4 = st.columns(4)
         total_friends = len(targets)
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -390,77 +321,77 @@ with tabs[1]:
 
         with k1:
             with st.container(border=True):
-                st.metric("Tổng Bạn Bè Giữ Chuỗi", f"{total_friends} người", f"{total_friends} bạn bè")
+                st.metric("Mục tiêu đang theo dõi", f"{total_friends}", f"{total_friends} bạn bè", delta_color="normal")
         with k2:
             with st.container(border=True):
-                delta_k2 = f"Đạt {sent_today}/{total_friends}" if total_friends else "Chưa có bạn"
-                st.metric("Mình Đã Gửi Hôm Nay", f"{sent_today} người", delta_k2)
+                delta_k2 = f"{sent_today}/{total_friends} hoàn thành" if total_friends else "Chưa có mục tiêu"
+                st.metric("Đã gửi hôm nay", f"{sent_today}", delta_k2, delta_color="normal" if sent_today > 0 else "off")
         with k3:
             with st.container(border=True):
                 if pending_today > 0:
-                    delta_k3 = f"Còn {pending_today} người"
+                    delta_k3 = f"Còn {pending_today} cần gửi"
                     delta_color = "inverse"
                 else:
-                    delta_k3 = "Không còn ai chờ"
+                    delta_k3 = "Đã gửi toàn bộ"
                     delta_color = "normal"
-                st.metric("Chưa Gửi Hôm Nay", f"{pending_today} người", delta_k3, delta_color=delta_color)
+                st.metric("Chưa gửi hôm nay", f"{pending_today}", delta_k3, delta_color=delta_color)
         with k4:
             with st.container(border=True):
-                val_k4 = "Kích hoạt" if global_scheduler.is_running else "Đang tắt"
-                delta_k4 = "Canh gác 23:30" if global_scheduler.is_running else "Chưa bật"
-                st.metric("Vệ Tinh 23h30 Đêm", val_k4, delta_k4)
+                val_k4 = "Đang chạy" if global_scheduler.is_running else "Đang tắt"
+                delta_k4 = "Tự động 23:30" if global_scheduler.is_running else "Tạm dừng"
+                st.metric("Canh gác ban đêm", val_k4, delta_k4, delta_color="normal" if global_scheduler.is_running else "off")
 
         st.write("")
 
-        # Tiêu đề danh sách
-        st.markdown("<h3 style='margin:0 0 8px 0;'>📋 Danh Sách Mục Tiêu Giữ Chuỗi</h3>", unsafe_allow_html=True)
+        st.write("")
+        c_title_l, c_title_r = st.columns([1, 1], vertical_alignment="center")
+        with c_title_l:
+            st.markdown("#### Mục tiêu giữ chuỗi")
+        with c_title_r:
+            pass
 
-        # Thanh nút hành động nhanh đồng đều và thoáng mắt
-        col_act_scan, col_act_check_all, col_act2, col_act_backup, col_act3 = st.columns([1.5, 1.3, 1.2, 1.0, 0.8], vertical_alignment="center")
+        # Thanh công cụ SaaS: Gửi tất cả là nút chính nổi bật, các nút còn lại là outline/menu
+        col_act_main, col_act_scan, col_act_check_all, col_act_more = st.columns([1.4, 1.4, 1.3, 0.9], vertical_alignment="center")
+        with col_act_main:
+            btn_run_all = st.button("Gửi tất cả", type="primary", use_container_width=True, icon=":material/send:")
         with col_act_scan:
-            btn_scan_all = st.button("🔄 Quét Bạn Bè (API)", type="secondary", width="stretch", help="Tự động quét danh sách bạn bè và check chuỗi trực tiếp từ TikTok API")
+            btn_scan_all = st.button("Quét hộp thư", type="secondary", use_container_width=True, icon=":material/sync:", help="Tự động quét danh sách hội thoại từ hộp thư TikTok")
         with col_act_check_all:
-            btn_check_all = st.button("🔍 Check tất cả", width="stretch", help="Quét và cập nhật trạng thái toàn bộ danh sách từ TikTok API")
-        with col_act2:
-            btn_run_all = st.button("⚡ Gửi tất cả", type="primary", width="stretch")
-        with col_act_backup:
-            pop_bak = st.popover("💾 Sao lưu", width="stretch")
-            with pop_bak:
-                st.markdown("**Sao Lưu & Khôi Phục Dữ Liệu**")
-                st.caption("Dùng khi deploy lại hoặc tải về máy cá nhân.")
+            btn_check_all = st.button("Kiểm tra tất cả", type="secondary", use_container_width=True, icon=":material/fact_check:", help="Kiểm tra trạng thái rep 2 chiều toàn bộ danh sách")
+        with col_act_more:
+            pop_more = st.popover("Thêm", use_container_width=True)
+            with pop_more:
+                st.markdown("**Sao lưu & Khôi phục**")
                 json_data = json.dumps(targets, indent=2, ensure_ascii=False)
                 st.download_button(
-                    label="📥 Tải file Backup (.json)",
+                    label="Tải file sao lưu (.json)",
                     data=json_data,
                     file_name="streak_targets_backup.json",
                     mime="application/json",
-                    width="stretch",
+                    use_container_width=True,
+                    icon=":material/download:",
                 )
-                st.divider()
-                st.markdown("**Khôi phục từ file Backup:**")
-                up_f = st.file_uploader("Chọn file json backup:", type=["json"], label_visibility="collapsed")
+                st.caption("Khôi phục dữ liệu từ file backup:")
+                up_f = st.file_uploader("Chọn file json:", type=["json"], label_visibility="collapsed")
                 if up_f is not None:
                     try:
                         restored = json.load(up_f)
                         if isinstance(restored, list):
-                            if st.button("Nạp danh sách này", type="primary", width="stretch"):
+                            if st.button("Nạp danh sách này", type="primary", use_container_width=True):
                                 bot.save_targets(restored)
                                 st.success("Khôi phục thành công!")
                                 st.rerun()
                         else:
                             st.error("File JSON không hợp lệ.")
                     except Exception as ef:
-                        st.error(f"Lỗi đọc file: {ef}")
-        with col_act3:
-            # Nút phụ Xoá hết có popover xác nhận an toàn
-            pop_clear = st.popover("🗑️ Xoá", width="stretch")
-            with pop_clear:
-                st.markdown("**Xác nhận xoá toàn bộ?**")
-                st.caption("Thao tác này sẽ xoá sạch danh sách bạn bè hiện tại.")
-                btn_clear_confirm = st.button("Đồng ý xoá sạch", type="primary", width="stretch")
+                        st.error(f"Lỗi: {ef}")
+                st.divider()
+                st.markdown("**Xoá toàn bộ danh sách**")
+                st.caption("Thao tác này sẽ xoá toàn bộ mục tiêu hiện tại.")
+                btn_clear_confirm = st.button("Xác nhận xoá sạch", type="secondary", use_container_width=True, icon=":material/delete:")
                 if btn_clear_confirm:
                     bot.save_targets([])
-                    st.toast("Đã xoá toàn bộ danh sách!", icon="🗑️")
+                    st.toast("Đã xoá toàn bộ danh sách!", icon=":material/delete:")
                     st.rerun()
 
         # Xử lý khi bấm nút Quét Hộp Thư Tin Nhắn
@@ -725,118 +656,133 @@ with tabs[1]:
                 time.sleep(1)
                 st.rerun()
 
-        # Hiển thị danh sách bạn bè dạng thẻ Card chuyên nghiệp (Responsive & Không tràn viền)
+        # Hiển thị danh sách bạn bè dạng Bảng-Thẻ SaaS tối giản
         st.write("")
         if targets:
+            now_dt = datetime.now()
+            today_prefix = now_dt.strftime("%Y-%m-%d")
+            end_of_day_dt = datetime(now_dt.year, now_dt.month, now_dt.day, 23, 59, 59)
+            rem_sec_today = max(0, int((end_of_day_dt - now_dt).total_seconds()))
+            rem_h = rem_sec_today // 3600
+            rem_m = (rem_sec_today % 3600) // 60
+            countdown_tag = f"Còn {rem_h}h {rem_m}p"
+
             for idx, t in enumerate(targets):
                 with st.container(border=True):
-                    col_info, col_actions = st.columns([5.2, 4.8], vertical_alignment="center")
+                    col_user, col_chip, col_primary_act, col_menu = st.columns([3.5, 3.8, 1.4, 0.8], vertical_alignment="center")
 
-                    # Phần 1: Thông tin người dùng & Trạng thái
-                    with col_info:
+                    # Cột 1: Tên hiển thị (đậm) + @username (phụ)
+                    with col_user:
+                        disp_name = t.get("nickname") or t["username"]
+                        user_uname = t["username"]
                         sc = t.get("streak_count", 0)
-                        flame = f" 🔥`{sc} ngày`" if sc else ""
-                        status_text = t.get("status", "Ready")
-                        if any(k in status_text for k in ["Thành công", "Đã Rep", "Đang giữ chuỗi", "Đang có chuỗi", "Đã kết nối", "hôm nay! ✅"]):
-                            badge_cls = "badge-success"
-                        elif any(k in status_text for k in ["Thất bại", "Lỗi", "gián đoạn", "Không tìm thấy"]):
-                            badge_cls = "badge-danger"
-                        else:
-                            badge_cls = "badge-warning"
-
-                        nick_disp = f" ({t.get('nickname')})" if t.get("nickname") and t.get("nickname") != t["username"] else ""
+                        streak_badge = f" • <span style='color:#fe2c55;font-weight:600;'>{sc} ngày</span>" if sc else ""
                         st.markdown(
-                            f"<div style='display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;'>"
-                            f"<span style='font-size:1.05rem; font-weight:700;'>@{t['username']}{nick_disp}</span>"
-                            f"{flame}"
-                            f"<span class='status-badge {badge_cls}'>{status_text}</span>"
-                            f"</div>",
+                            f'<div class="friend-name">{disp_name}<span class="friend-username">@{user_uname}</span>{streak_badge}</div>',
+                            unsafe_allow_html=True
+                        )
+                        msg_display = t.get("custom_msg") or "Mặc định (Icon 🔥)"
+                        last_sent_val = t.get("last_sent", "Chưa gửi")
+                        st.markdown(
+                            f'<div class="friend-meta">Tin: {msg_display} • Gửi cuối: {last_sent_val}</div>',
                             unsafe_allow_html=True
                         )
 
-                        msg_display = t.get("custom_msg") or "Mặc định (Icon 🔥)"
-                        last_sent_val = t.get("last_sent", "Chưa gửi")
-                        st.caption(f"💬 Tin: `{msg_display}` • 🕒 Lần gửi cuối: `{last_sent_val}`")
+                    # Cột 2: Chip trạng thái (Đã gửi hôm nay / Chưa gửi / Đối phương đã rep) + Đếm ngược
+                    with col_chip:
+                        status_str = t.get("status", "")
+                        last_sent_str = t.get("last_sent", "")
+                        has_sent_today = last_sent_str.startswith(today_prefix) or ("hôm nay! ✅" in status_str) or ("Thành công" in status_str)
+                        friend_rep = t.get("friend_replied", False) or ("Đối phương đã rep" in status_str) or ("hai bên đã rep" in status_str.lower())
 
-                    # Phần 2: 5 nút hành động rộng rãi, không bao giờ bị cắt chữ
-                    with col_actions:
-                        b_chk, b_snd, b_man, b_hu, b_del = st.columns([1.1, 1.0, 1.2, 1.2, 0.5], vertical_alignment="center")
-                        with b_chk:
-                            if st.button("🔍 Check", key=f"check_{idx}", help="Kiểm tra chuỗi từ TikTok API", width="stretch"):
-                                with st.spinner(f"Đang check chuỗi từ TikTok API với @{t['username']}..."):
-                                    try:
-                                        check_res = bot.run_check_sync(t["username"])
-                                        if check_res.get("checked"):
-                                            t["status"] = check_res.get("status_desc")
-                                            if "streak_count" in check_res:
-                                                t["streak_count"] = check_res["streak_count"]
-                                            if check_res.get("friend_replied"):
-                                                st.toast(f"@{t['username']}: Đã rep lại!", icon="🎉")
-                                                st.success(f"@{t['username']}: {check_res.get('status_desc')}")
-                                            else:
-                                                st.info(f"@{t['username']}: {check_res.get('status_desc')}")
-                                        else:
-                                            st.warning(f"@{t['username']}: {check_res.get('status_desc')}")
-                                        bot.save_targets(targets)
-                                        time.sleep(1)
-                                        st.rerun()
-                                    except Exception as err:
-                                        st.error(f"⚠️ {err}")
+                        if "hai bên đã rep" in status_str.lower():
+                            chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Đã giữ chuỗi hôm nay</span>'
+                        elif has_sent_today:
+                            if friend_rep:
+                                chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Đã gửi • Đối phương đã rep</span>'
+                            else:
+                                chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Bạn đã gửi hôm nay</span>'
+                        elif friend_rep:
+                            chip_html = f'<span class="status-chip chip-warning"><span class="status-dot dot-warning"></span> Đối phương đã rep • {countdown_tag}</span>'
+                        else:
+                            chip_html = f'<span class="status-chip chip-warning"><span class="status-dot dot-warning"></span> Chưa gửi hôm nay • {countdown_tag}</span>'
 
-                        with b_snd:
-                            if st.button("🚀 Gửi", key=f"send_{idx}", width="stretch", help="Gửi tự động qua bot"):
+                        st.markdown(chip_html, unsafe_allow_html=True)
+
+                    # Cột 3: Một nút chính theo ngữ cảnh ("Đã gửi" hoặc "Gửi ngay")
+                    with col_primary_act:
+                        if has_sent_today:
+                            st.button("Đã xong", key=f"done_{idx}", disabled=True, use_container_width=True, icon=":material/check:")
+                        else:
+                            if st.button("Gửi", key=f"send_main_{idx}", type="primary", use_container_width=True, icon=":material/send:", help="Gửi chuỗi tự động"):
                                 with st.spinner(f"Đang gửi tới @{t['username']}..."):
                                     ok = bot.run_send_sync(t["username"], t.get("custom_msg"))
                                     if ok:
                                         t["last_sent"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                        t["status"] = "Thành công 🔥"
+                                        t["status"] = "Đang giữ chuỗi • Bạn đã gửi hôm nay! ✅"
                                         bot.save_targets(targets)
-                                        st.toast(f"Đã gửi thành công tới @{t['username']}!", icon="🔥")
+                                        st.toast(f"Đã gửi tới @{t['username']}!", icon=":material/check:")
                                         st.rerun()
                                     else:
                                         st.error("Gửi thất bại!")
 
-                        with b_man:
-                            if st.button("✋ Đã gửi", key=f"manual_{idx}", help="Bấm vào đây nếu bạn đã gửi chuỗi bằng tay trên điện thoại", width="stretch"):
+                    # Cột 4: Menu tác vụ ba chấm gọn gàng (Check, Gửi lại, Đã gửi tay, Hú Hú, Xoá có xác nhận)
+                    with col_menu:
+                        pop_item = st.popover("⋯", use_container_width=True)
+                        with pop_item:
+                            st.markdown(f"**Tác vụ: @{t['username']}**")
+                            # Check trạng thái
+                            if st.button("Kiểm tra chuỗi", key=f"sub_chk_{idx}", use_container_width=True, icon=":material/refresh:"):
+                                with st.spinner("Đang kiểm tra..."):
+                                    try:
+                                        chk_res = bot.run_check_sync(t["username"])
+                                        if chk_res.get("checked"):
+                                            t["status"] = chk_res.get("status_desc")
+                                            if "streak_count" in chk_res:
+                                                t["streak_count"] = chk_res["streak_count"]
+                                            if chk_res.get("friend_replied"):
+                                                t["friend_replied"] = True
+                                        bot.save_targets(targets)
+                                        st.rerun()
+                                    except Exception as ex_c:
+                                        st.error(f"Lỗi: {ex_c}")
+
+                            # Đánh dấu đã gửi bằng tay trên điện thoại
+                            if st.button("Đã gửi trên điện thoại", key=f"sub_man_{idx}", use_container_width=True, icon=":material/done_all:"):
                                 res_m = bot.mark_manual_send(t["username"])
                                 if res_m.get("success"):
-                                    st.toast(f"Đã ghi nhận bạn gửi chuỗi tới @{t['username']}!", icon="🔥")
-                                    st.success(f"@{t['username']}: {res_m.get('status_desc')}")
-                                    time.sleep(0.5)
+                                    st.toast(f"Đã ghi nhận gửi tới @{t['username']}!", icon=":material/check:")
                                     st.rerun()
 
-                        with b_hu:
-                            if st.button("📢 HÚ HÚ", key=f"huhu_{idx}", width="stretch", help="Spam nhắc nhở giữ chuỗi"):
+                            # Hú Hú spam nhắc nhở
+                            if st.button("Báo động Hú Hú", key=f"sub_hu_{idx}", use_container_width=True, icon=":material/notifications_active:"):
                                 custom_spams = t.get("spam_messages")
-                                with st.spinner(f"🚨 Đang HÚ HÚ @{t['username']}..."):
+                                with st.spinner("Đang kích hoạt Hú Hú..."):
                                     result = bot.run_spam_huhu_sync(t["username"], custom_spam_list=custom_spams, max_rounds=8)
                                     sent_num = result.get("sent", 0)
-                                    replied = result.get("replied", False)
-                                    if replied:
+                                    if result.get("replied"):
                                         t["status"] = f"Đã Rep sau {sent_num} tin! 🎉"
-                                        st.balloons()
-                                        st.success(f"🎉 Cứu chuỗi thành công! @{t['username']} đã rep sau {sent_num} tin!")
                                     else:
-                                        t["status"] = f"Đã Hú ({sent_num} tin) 📢"
-                                        st.info(f"Đã gửi {sent_num} tin hú hú tới @{t['username']}.")
+                                        t["status"] = f"Đã Hú ({sent_num} tin)"
                                     bot.save_targets(targets)
-                                    time.sleep(1)
                                     st.rerun()
 
-                        with b_del:
-                            if st.button("✕", key=f"del_{idx}", help="Xoá bạn này khỏi danh sách", width="stretch"):
+                            # Xoá có popover/xác nhận
+                            st.divider()
+                            del_confirm = st.checkbox("Xác nhận xoá bạn này", key=f"chk_del_confirm_{idx}")
+                            if st.button("Xoá khỏi danh sách", key=f"sub_del_{idx}", use_container_width=True, type="secondary", disabled=not del_confirm, icon=":material/delete:"):
                                 targets.pop(idx)
                                 bot.save_targets(targets)
-                                st.toast(f"Đã xoá @{t['username']}", icon="🗑️")
+                                st.toast(f"Đã xoá @{t['username']}", icon=":material/delete:")
                                 st.rerun()
         else:
-            st.info("👋 Danh sách hiện đang trống. Hãy thêm bạn bè ở khung phía trên để bắt đầu giữ chuỗi!")
+            st.info("Danh sách theo dõi hiện đang trống. Sử dụng nút 'Quét hộp thư' hoặc thêm bạn bè ở bên dưới để bắt đầu.")
 
 
 # ---------------------------------------------------------------------------
-# TAB 2: CÀO DỮ LIỆU TIKTOK (CẢI TIẾN TRỰC QUAN & HIỆN LOG CHI TIẾT TRÊN UI)
+# TAB 1: THU THẬP DỮ LIỆU TIKTOK (CẢI TIẾN TRỰC QUAN & HIỆN LOG CHI TIẾT TRÊN UI)
 # ---------------------------------------------------------------------------
-with tabs[2]:
+with tabs[1]:
     st.subheader("📥 Thu thập Dữ liệu TikTok (Bình luận & Video)")
 
     col_u1, col_u2 = st.columns([3, 1], vertical_alignment="bottom")
@@ -888,9 +834,9 @@ with tabs[2]:
                         status_box.error(f"❌ Lỗi: {ec}")
 
 # ---------------------------------------------------------------------------
-# TAB 3: PHÂN TÍCH
+# TAB 2: THỐNG KÊ & PHÂN TÍCH
 # ---------------------------------------------------------------------------
-with tabs[3]:
+with tabs[2]:
     st.subheader("📊 Thống Kê & Phân Tích Dữ Liệu Đã Cào")
     st.caption("Xem bảng dữ liệu, các chỉ số tương tác và tải file CSV để nghiên cứu.")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -924,4 +870,72 @@ with tabs[3]:
 
         st.dataframe(df, width="stretch")
     else:
-        st.info("Chưa có tệp CSV nào trong thư mục data/. Hãy thực hiện cào dữ liệu ở Tab bên cạnh trước!")
+        st.info("Chưa có tệp CSV nào trong thư mục data/. Hãy thực hiện cào dữ liệu ở Tab bên cạnh trước!")# ---------------------------------------------------------------------------
+# TAB 3: NÂNG CAO (RAW JSON)
+# ---------------------------------------------------------------------------
+with tabs[3]:
+    st.subheader("🌐 TikTok Full API Explorer - Trích Xuất & Xuất RAW JSON")
+    st.caption("Truy vấn trực tiếp toàn bộ Endpoint API chính thống & gateway công khai của TikTok. Hiển thị cây JSON đầy đủ và tải file JSON chỉ với 1 cú click.")
+
+    api_choice = st.selectbox(
+        "Chọn Endpoint API TikTok cần lấy JSON:",
+        [
+            "1. Item Detail (Video full specs, MP4 no-watermark, Music MP3, Stats)",
+            "2. Comment List (Toàn bộ bình luận, Tác giả, Like count, Cursor)",
+            "3. Comment Reply (Bình luận con / Phản hồi tầng 2)",
+            "4. User Profile (Hồ sơ Creator, Tích xanh, Lượt follow, Giỏ hàng Shop)",
+            "5. Search API (Tìm kiếm Video hoặc Creator theo từ khoá)",
+            "6. Live Room Webcast (Thông tin Livestream, Phòng Live)",
+        ],
+    )
+
+    c_p1, c_p2 = st.columns([3, 1], vertical_alignment="bottom")
+    with c_p1:
+        if "4." in api_choice:
+            placeholder_text = "ví dụ: khaby.lame hoặc @khaby.lame"
+        elif "5." in api_choice:
+            placeholder_text = "ví dụ: nấu ăn, hài hước, trending"
+        elif "6." in api_choice:
+            placeholder_text = "ví dụ: username live hoặc room_id"
+        else:
+            placeholder_text = "ví dụ: https://www.tiktok.com/@scout2015/video/6718335390845095173 hoặc 6718335390845095173"
+        in_val = st.text_input("Nhập tham số (URL Video / Video ID / Username / Từ khoá):", placeholder=placeholder_text)
+    with c_p2:
+        b_call = st.button("🚀 Lấy API & Xuất JSON", type="primary", width="stretch")
+
+    if b_call:
+        if not in_val.strip():
+            st.error("❌ Vui lòng nhập tham số!")
+        else:
+            with st.spinner("⏳ Đang gửi request tới TikTok API Hub..."):
+                raw_res = {}
+                p_clean = in_val.strip()
+                if "1." in api_choice:
+                    raw_res = query_video_full_api(p_clean)
+                elif "2." in api_choice:
+                    raw_res = query_comments_full_api(p_clean, count=50)
+                elif "3." in api_choice:
+                    raw_res = query_comment_replies_api(p_clean, count=20)
+                elif "4." in api_choice:
+                    raw_res = query_user_profile_api(p_clean)
+                elif "5." in api_choice:
+                    raw_res = query_search_api(p_clean)
+                elif "6." in api_choice:
+                    raw_res = query_live_room_api(p_clean)
+
+            if raw_res.get("status") in ["success", "success_oembed"]:
+                st.success("✅ Đã nhận thành công dữ liệu JSON từ TikTok!")
+            elif raw_res.get("status") == "info":
+                st.info(raw_res.get("message", "Đã xử lý yêu cầu."))
+            else:
+                st.warning(f"⚠️ Kết quả: {raw_res.get('message', 'Không lấy được dữ liệu chi tiết')}")
+
+            cj1, cj2 = st.columns([3, 1], vertical_alignment="center")
+            with cj1:
+                st.markdown("#### 🌳 Cấu trúc Dữ liệu JSON:")
+            with cj2:
+                j_bytes = json.dumps(raw_res, ensure_ascii=False, indent=2).encode("utf-8")
+                st.download_button("📥 Tải File JSON", data=j_bytes, file_name="tiktok_api_response.json", mime="application/json", width="stretch")
+
+            st.json(raw_res)
+
