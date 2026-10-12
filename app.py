@@ -692,17 +692,18 @@ with tabs[0]:
                     with col_chip:
                         status_str = t.get("status", "")
                         last_sent_str = t.get("last_sent", "")
-                        has_sent_today = last_sent_str.startswith(today_prefix) or ("hôm nay! ✅" in status_str) or ("Thành công" in status_str)
-                        friend_rep = t.get("friend_replied", False) or ("Đối phương đã rep" in status_str) or ("hai bên đã rep" in status_str.lower())
+                        # Chỉ tính là đã gửi hôm nay nếu last_sent khớp ngày hôm nay hoặc status khẳng định bạn đã gửi hôm nay
+                        has_sent_today = bool(last_sent_str and last_sent_str.startswith(today_prefix)) or ("bạn đã gửi hôm nay! ✅" in status_str.lower())
+                        friend_rep = bool(t.get("friend_replied", False)) or ("đối phương đã rep" in status_str.lower())
+                        bilateral_done = "hai bên đã rep" in status_str.lower() and has_sent_today and friend_rep
 
-                        if "hai bên đã rep" in status_str.lower():
+                        if bilateral_done:
                             chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Đã giữ chuỗi hôm nay</span>'
-                        elif has_sent_today:
-                            if friend_rep:
-                                chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Đã gửi • Đối phương đã rep</span>'
-                            else:
-                                chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Bạn đã gửi hôm nay</span>'
-                        elif friend_rep:
+                        elif has_sent_today and friend_rep:
+                            chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Đã gửi • Đối phương đã rep</span>'
+                        elif has_sent_today and not friend_rep:
+                            chip_html = '<span class="status-chip chip-success"><span class="status-dot dot-success"></span> Bạn đã gửi hôm nay</span>'
+                        elif not has_sent_today and friend_rep:
                             chip_html = f'<span class="status-chip chip-warning"><span class="status-dot dot-warning"></span> Đối phương đã rep • {countdown_tag}</span>'
                         else:
                             chip_html = f'<span class="status-chip chip-warning"><span class="status-dot dot-warning"></span> Chưa gửi hôm nay • {countdown_tag}</span>'

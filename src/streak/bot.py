@@ -822,21 +822,27 @@ class TikTokStreakBot:
                     last_date_tag = msgs[-1].get("dateTag", "") if msgs else ""
                     recent_chunk = [m for m in msgs if m.get("dateTag") == last_date_tag] if last_date_tag else msgs[-8:]
                     
-                    i_sent = False
-                    friend_replied = False
-                    for m in recent_chunk:
-                        s = m.get("sender", "").lower()
-                        if s:
-                            if not my_account and s != uname.lower():
-                                my_account = s
-                            if my_account and s == my_account.lower():
-                                i_sent = True
-                            elif s == uname.lower() or (my_account and s != my_account.lower()):
-                                friend_replied = True
-
+                    # Đọc thời gian hiển thị trên card hội thoại
+                    # Nếu có dạng HH:MM (ví dụ 00:23, 11:47) -> Tin nhắn phát sinh HÔM NAY!
+                    # Nếu có dạng MM/DD/YYYY (ví dụ 10/11/2026) -> Tin nhắn từ HÔM QUA hoặc cũ hơn!
                     card_time_has_colon = bool(re.search(r'\b\d{1,2}:\d{2}\b', it.text))
                     is_today = card_time_has_colon or ("today" in last_date_tag.lower()) or ("hôm nay" in last_date_tag.lower())
-                    is_kept_today = (i_sent and friend_replied)
+
+                    i_sent = False
+                    friend_replied = False
+
+                    if is_today:
+                        for m in recent_chunk:
+                            s = m.get("sender", "").lower()
+                            if s:
+                                if not my_account and s != uname.lower():
+                                    my_account = s
+                                if my_account and s == my_account.lower():
+                                    i_sent = True
+                                elif s == uname.lower() or (my_account and s != my_account.lower()):
+                                    friend_replied = True
+
+                    is_kept_today = bool(is_today and i_sent and friend_replied)
 
                     # Phát hiện streak từ avatar badge hoặc từ khoá trong nội dung chat
                     streak_count = 0
@@ -1153,19 +1159,33 @@ class TikTokStreakBot:
                     last_date_tag = msgs[-1].get("dateTag", "") if msgs else ""
                     recent_chunk = [m for m in msgs if m.get("dateTag") == last_date_tag] if last_date_tag else msgs[-8:]
 
+                    # Kiểm tra thẻ hội thoại bên danh sách trái để xác định tin nhắn có phải HÔM NAY không
+                    card_time_has_colon = False
+                    try:
+                        conv_items = driver.find_elements(By.CSS_SELECTOR, "div[data-e2e='dm-new-conversation-item']")
+                        for cit in conv_items:
+                            if username.lower() in cit.text.lower() or (target and target.get("nickname", "").lower() in cit.text.lower()):
+                                card_time_has_colon = bool(re.search(r'\b\d{1,2}:\d{2}\b', cit.text))
+                                break
+                    except Exception:
+                        pass
+
+                    is_today_chat = card_time_has_colon or ("today" in last_date_tag.lower()) or ("hôm nay" in last_date_tag.lower())
+
                     i_sent_recently = False
                     friend_replied = False
                     clean_target = username.strip().replace("@", "").lower()
 
-                    for m in recent_chunk:
-                        s = m.get("sender", "").lower()
-                        if s:
-                            if s == clean_target:
-                                friend_replied = True
-                            else:
-                                i_sent_recently = True
+                    if is_today_chat:
+                        for m in recent_chunk:
+                            s = m.get("sender", "").lower()
+                            if s:
+                                if s == clean_target:
+                                    friend_replied = True
+                                else:
+                                    i_sent_recently = True
 
-                    already_sent_today = i_sent_recently or (last_sent and last_sent.startswith(today_str))
+                    already_sent_today = i_sent_recently or bool(last_sent and last_sent.startswith(today_str))
 
                     if already_sent_today and friend_replied:
                         if not last_sent.startswith(today_str):
