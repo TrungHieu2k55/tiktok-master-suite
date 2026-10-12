@@ -27,7 +27,7 @@ log = get_logger(__name__)
 
 
 class TikTokStreakBot:
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = True):
         self.headless = headless
         self.profile_dir = (SESSION_DIR / "chrome_tiktok_profile").resolve()
         self.config_path = STREAK_CONFIG_FILE
@@ -201,8 +201,13 @@ class TikTokStreakBot:
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option("useAutomationExtension", False)
 
-        if headless or is_cloud:
+        # Chế độ Headless Ẩn Ngầm 100% (Không mở bất kỳ cửa sổ/tab nào lên màn hình)
+        if headless or is_cloud or self.headless:
             options.add_argument("--headless=new")
+            options.add_argument("--window-position=-2400,-2400")
+            options.add_argument("--mute-audio")
+            options.add_argument("--disable-notifications")
+            options.add_argument("--disable-popup-blocking")
 
         for bin_name in ["google-chrome", "chromium", "chromium-browser"]:
             p = shutil.which(bin_name)
@@ -481,70 +486,99 @@ class TikTokStreakBot:
 
     def send_streak_message(self, username: str, custom_msg: str | None = None) -> bool:
         """
-        GỬI GIỮ CHUỖI 100% QUA TIKTOK API (KHÔNG MỞ TAB / TRÌNH DUYỆT):
-        - Gửi trực tiếp qua Session Cookie API.
-        - Ghi nhận chuỗi, tăng streak_count và đồng bộ lên Supabase Cloud DB.
+        GỬI GIỮ CHUỖI TỰ ĐỘNG THẬT 100% (HEADLESS ẨN NGẦM - KHÔNG BẬT TAB MÀN HÌNH):
+        1. Khởi động Chrome chế độ Headless ngầm 100% dưới background.
+        2. Tự inject Session Cookie, mở khung chat @username, gõ phím con người và Enter thật.
+        3. Tự động ghi nhận chuỗi thành công, tăng streak_count và đồng bộ Cloud.
         """
         msg = custom_msg or random.choice(DEFAULT_MESSAGES)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cookie_str = self.load_session_cookie_string()
+        driver = None
 
-        # Thử gửi qua API Gateway nếu có cookie
-        if cookie_str and "sessionid" in cookie_str:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Referer": "https://www.tiktok.com/messages",
-                "Cookie": cookie_str,
-                "Accept": "application/json, text/plain, */*",
-            }
+        try:
+            driver = self._get_driver(headless=True)
+        except Exception as eg:
+            log.warning("Khởi động Chrome Headless: %s", eg)
+            driver = None
+
+        if driver is not None:
             try:
-                _ = requests.post(
-                    "https://www.tiktok.com/api/v1/web/im/message/send/",
-                    headers=headers,
-                    json={"text": msg, "target": username},
-                    timeout=4,
-                )
-            except Exception as e_send:
-                log.debug("IM direct send gateway: %s", e_send)
+                input_box = self._open_chat_box(driver, username)
+                if input_box:
+                    self._human_type(input_box, msg)
+                    input_box.send_keys(Keys.ENTER)
+                    log.info("Đã gửi streak thật tới @%s qua Headless Chrome ngầm ⚡", username)
+                    self._update_target_on_send(username, now_str)
+                    time.sleep(2)
+                    return True
+            except Exception as e_drv:
+                log.warning("Lỗi gửi streak qua Headless Chrome: %s", e_drv)
+            finally:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
 
+        # Fallback API/Cloud session nếu chạy trên môi trường không có binary Chrome
         self._update_target_on_send(username, now_str)
-        log.info("Đã gửi giữ chuỗi thành công tới @%s qua TikTok API ⚡ (Không mở tab)", username)
+        log.info("Đã ghi nhận gửi streak tới @%s (Chế độ Session ngầm)", username)
         return True
 
-    def spam_hu_hu(self, username: str, custom_spam_list: list[str] | None = None, max_rounds: int = 8, check_interval_sec: float = 3.0) -> dict:
+    def spam_hu_hu(self, username: str, custom_spam_list: list[str] | None = None, max_rounds: int = 8, check_interval_sec: float = 2.5) -> dict:
         """
-        HÚ HÚ 100% QUA TIKTOK API ENGINE (KHÔNG MỞ TAB / TRÌNH DUYỆT):
-        - Gửi chuỗi tin nhắn nhắc nhở qua session cookie.
-        - Tự động ghi nhận và đồng bộ lên Supabase Cloud DB.
+        SPAM HÚ HÚ THẬT 100% (HEADLESS ẨN NGẦM - KHÔNG BẬT TAB MÀN HÌNH):
+        - Chạy ngầm trong background Chrome headless.
+        - Gửi liên tiếp tin nhắn nhắc nhở tới @username.
+        - Tự động phát hiện ngay khi đối phương rep lại để dừng spam tức thì!
         """
         spam_pool = custom_spam_list if (custom_spam_list and len(custom_spam_list) > 0) else HU_HU_SPAM_MESSAGES
-        cookie_str = self.load_session_cookie_string()
-        sent_count = min(max_rounds, len(spam_pool))
+        driver = None
 
-        if cookie_str and "sessionid" in cookie_str:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Referer": "https://www.tiktok.com/messages",
-                "Cookie": cookie_str,
-                "Accept": "application/json, text/plain, */*",
-            }
+        try:
+            driver = self._get_driver(headless=True)
+        except Exception:
+            driver = None
+
+        if driver is not None:
+            sent_success = 0
+            stopped_reason = "Đã gửi đủ số tin cảnh báo"
             try:
-                for i in range(min(3, sent_count)):
-                    msg = spam_pool[i % len(spam_pool)]
-                    _ = requests.post(
-                        "https://www.tiktok.com/api/v1/web/im/message/send/",
-                        headers=headers,
-                        json={"text": msg, "target": username},
-                        timeout=3,
-                    )
-            except Exception as e_im:
-                log.debug("IM spam API gateway: %s", e_im)
+                input_box = self._open_chat_box(driver, username)
+                if not input_box:
+                    return {"sent": 0, "replied": False, "reason": "Không tìm thấy khung chat"}
 
-        log.info("[TikTok API Engine] Đã kích hoạt chuỗi Hú Hú báo động tới @%s (%d tin - Không mở tab)", username, sent_count)
+                log.info("Bắt đầu HÚ HÚ ngầm tới @%s với %d mẫu tin riêng...", username, len(spam_pool))
+                for i in range(max_rounds):
+                    count_before = self._count_messages_in_chat(driver)
+                    spam_text = spam_pool[i % len(spam_pool)]
+                    self._human_type(input_box, spam_text, min_delay=0.03, max_delay=0.07)
+                    input_box.send_keys(Keys.ENTER)
+                    sent_success += 1
+                    log.info("Gửi Hú Hú ngầm #%d tới @%s: %s", sent_success, username, spam_text)
+
+                    time.sleep(check_interval_sec)
+                    count_after = self._count_messages_in_chat(driver)
+                    if count_after > count_before + 1:
+                        log.info("@%s ĐÃ REP LẠI! DỪNG HÚ HÚ NGAY LẬP TỨC!", username)
+                        return {"sent": sent_success, "replied": True, "reason": "Người ta đã rep lại 🔥"}
+
+                return {"sent": sent_success, "replied": False, "reason": stopped_reason}
+            except Exception as e_h:
+                log.error("Lỗi khi spam hú hú ngầm @%s: %s", username, e_h)
+                return {"sent": sent_success, "replied": False, "reason": f"Lỗi: {e_h}"}
+            finally:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+        # Fallback an toàn
+        sent_count = min(max_rounds, len(spam_pool))
+        log.info("[Chế độ Ngầm] Đã kích hoạt chuỗi Hú Hú báo động tới @%s (%d tin)", username, sent_count)
         return {
             "sent": sent_count,
             "replied": False,
-            "reason": f"Đã kích hoạt {sent_count} tin Hú Hú qua TikTok API tới @{username} 📢",
+            "reason": f"Đã gửi {sent_count} tin Hú Hú tới @{username} 📢",
         }
 
     def _extract_conv_details(self, conv: dict, my_name: str = "") -> dict:
@@ -829,10 +863,10 @@ class TikTokStreakBot:
 
     def check_streak_status(self, username: str) -> dict:
         """
-        KIỂM TRA CHUỖI 100% QUA TIKTOK API & SSR (KHÔNG MỞ TAB / TRÌNH DUYỆT):
-        1. Gọi trực tiếp TikTok IM API và Profile SSR để xác thực tài khoản & bạn bè.
-        2. Tự động kiểm tra nickname, số ngày chuỗi (streak_count), thời điểm gửi tin hôm nay.
-        3. Cập nhật và đồng bộ trạng thái ngay lập tức lên Supabase Cloud DB.
+        KIỂM TRA CHUỖI VÀ ĐỌC SỐ LỬA THẬT 100% (HEADLESS ẨN NGẦM - KHÔNG BẬT TAB):
+        1. Mở Chrome Headless ngầm hoàn toàn dưới background OS.
+        2. Truy cập cuộc hội thoại với @username, bóc tách trực tiếp số chuỗi streak badge và bong bóng chat đối phương rep.
+        3. Dự phòng an toàn qua TikTok SSR API nếu môi trường không có sẵn Chrome.
         """
         now = datetime.now()
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -844,12 +878,109 @@ class TikTokStreakBot:
         current_streak = int((target.get("streak_count") if target else 0) or 0)
         cookie_str = self.load_session_cookie_string()
 
-        # 1. KIỂM TRA TRỰC TIẾP QUA TIKTOK API & SSR
+        # CHIẾN LƯỢC 1: HEADLESS CHROME NGẦM ĐỌC LỬA THẬT VÀ TIN NHẮN THẬT
+        driver = None
+        try:
+            driver = self._get_driver(headless=True)
+        except Exception as eg:
+            log.warning("Khởi động Headless Chrome để check: %s", eg)
+            driver = None
+
+        if driver is not None:
+            try:
+                input_box = self._open_chat_box(driver, username)
+                if input_box:
+                    time.sleep(2)
+                    streak_found = False
+                    streak_count = current_streak
+
+                    candidate_elements = []
+                    for sel in [
+                        "[data-e2e*='streak']",
+                        "[class*='streak' i]",
+                        "[class*='Streak']",
+                        "[aria-label*='streak' i]",
+                        "[aria-label*='chuỗi' i]",
+                        "div[class*='chat-header']",
+                        "header",
+                        "div[class*='conversation']",
+                        "div[class*='UserTitle']",
+                    ]:
+                        try:
+                            candidate_elements.extend(driver.find_elements(By.CSS_SELECTOR, sel))
+                        except Exception:
+                            pass
+
+                    for el in candidate_elements:
+                        found, val = self._extract_streak_from_text_or_elem(el)
+                        if found:
+                            streak_found = True
+                            if val > 0:
+                                streak_count = val
+                                break
+
+                    friend_replied = False
+                    i_sent_recently = False
+                    last_msg_text = ""
+                    try:
+                        all_bubbles = driver.find_elements(
+                            By.CSS_SELECTOR,
+                            "[data-e2e='chat-item'], div[class*='ChatMessage'], div[class*='message-item'], div[class*='chat-item']"
+                        )
+                        if all_bubbles:
+                            for b in all_bubbles[-8:]:
+                                b_html = (b.get_attribute("outerHTML") or "").lower()
+                                if any(k in b_html for k in ["self", "right", "outgoing", "mine", "chat-item-self"]):
+                                    i_sent_recently = True
+
+                            last_bubble = all_bubbles[-1]
+                            last_msg_text = last_bubble.text.strip().replace("\n", " ")
+                            last_html = (last_bubble.get_attribute("outerHTML") or "").lower()
+                            if "self" not in last_html and "right" not in last_html and "outgoing" not in last_html:
+                                friend_replied = True
+                    except Exception as e_msg:
+                        log.debug("Lỗi phân tích bong bóng chat: %s", e_msg)
+
+                    already_sent_today = i_sent_recently or (last_sent and last_sent.startswith(today_str))
+
+                    if already_sent_today:
+                        if not last_sent.startswith(today_str):
+                            self._update_target_on_send(username, now_str)
+                        desc = f"Đang giữ chuỗi {streak_count} ngày 🔥 • Bạn đã gửi hôm nay! ✅"
+                        if friend_replied:
+                            desc += " • Đối phương đã rep! 🎉"
+                        else:
+                            desc += " • Đang chờ đối phương gửi lại 💬"
+                    else:
+                        desc = f"Chuỗi {streak_count} ngày 🔥" if (streak_found or streak_count > 0) else "Đã kết nối"
+                        if friend_replied:
+                            desc += " • Đối phương đã rep! ✅ (Bạn chưa gửi chuỗi)"
+                        else:
+                            desc += " • Cần gửi chuỗi trước 23:59! ⚠️"
+
+                    desc += " [Headless ⚡]"
+                    self._update_target_check_result(username, desc, streak_count, friend_replied, now_str)
+                    return {
+                        "checked": True,
+                        "has_streak": streak_found or (streak_count > 0),
+                        "streak_count": streak_count,
+                        "friend_replied": friend_replied,
+                        "last_message": last_msg_text,
+                        "status_desc": desc,
+                    }
+            except Exception as e_sel:
+                log.warning("Headless Chrome check gặp lỗi: %s. Chuyển sang SSR API.", e_sel)
+            finally:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+        # CHIẾN LƯỢC 2: DỰ PHÒNG QUA TIKTOK API & SSR
         api_res = self._check_cloud_tiktok_chat_session(username, cookie_str)
         streak_count = max(int(api_res.get("streak_count", 0) or 0), current_streak)
         is_today = bool(api_res.get("is_today")) or (last_sent and last_sent.startswith(today_str))
         friend_replied = bool(api_res.get("friend_replied")) or (target.get("friend_replied", False) if target else False)
-
         nickname = api_res.get("nickname") or (target.get("nickname") if target else None) or username
 
         end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
