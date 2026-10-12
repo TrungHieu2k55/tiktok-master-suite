@@ -129,18 +129,27 @@ with st.sidebar:
         else:
             st.markdown('<div class="connection-status"><span class="status-dot dot-neutral"></span> Đang tạm dừng</div>', unsafe_allow_html=True)
 
-        with st.expander("Cài đặt khung giờ"):
+        with st.expander("⚙️ Chỉnh giờ hẹn & Khẩn cấp"):
             with st.form("custom_sched_form"):
-                h1 = st.number_input("Khung giờ sáng:", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[0] if len(sched_cfg.get("streak_hours", [8, 20])) > 0 else 8, step=1)
-                h2 = st.number_input("Khung giờ tối:", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[1] if len(sched_cfg.get("streak_hours", [8, 20])) > 1 else 20, step=1)
-                huhu_time_val = st.text_input("Giờ khẩn cấp Hú Hú:", value=sched_cfg.get("huhu_time", "23:30"))
-                sub_sched = st.form_submit_button("Lưu cài đặt", use_container_width=True, type="primary")
+                st.markdown("**1. Giờ gửi chuỗi định kỳ:**")
+                sc_c1, sc_c2 = st.columns(2)
+                with sc_c1:
+                    h1 = st.number_input("Buổi sáng (giờ):", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[0] if len(sched_cfg.get("streak_hours", [8, 20])) > 0 else 8, step=1)
+                with sc_c2:
+                    h2 = st.number_input("Buổi tối (giờ):", min_value=0, max_value=23, value=sched_cfg.get("streak_hours", [8, 20])[1] if len(sched_cfg.get("streak_hours", [8, 20])) > 1 else 20, step=1)
+
+                st.markdown("**2. Chế độ khẩn cấp cứu chuỗi:**")
+                huhu_time_val = st.text_input("Mốc giờ Hú Hú (HH:MM):", value=sched_cfg.get("huhu_time", "23:30"), help="Đến mốc giờ này, nếu bạn bè chưa rep, bot tự động spam Hú Hú cảnh báo và dừng ngay khi họ rep.")
+                st.caption("💡 *Mặc định: 23:30 (trước hạn 23:59 đêm). Chỉ kích hoạt với bạn chưa giữ chuỗi.*")
+
+                sub_sched = st.form_submit_button("Lưu cài đặt giờ", use_container_width=True, type="primary")
                 if sub_sched:
                     sched_cfg["streak_hours"] = sorted(list(set([int(h1), int(h2)])))
                     sched_cfg["huhu_time"] = huhu_time_val.strip() if huhu_time_val.strip() else "23:30"
                     save_scheduler_config(sched_cfg)
-                    st.success("Đã cập nhật khung giờ!")
-                    time.sleep(0.5)
+                    st.toast("Đã lưu cài đặt khung giờ khẩn cấp!", icon=":material/check:")
+                    st.success("Đã cập nhật khung giờ thành công!")
+                    time.sleep(0.6)
                     st.rerun()
 
     st.write("")
@@ -748,14 +757,26 @@ with tabs[0]:
                                     except Exception as ex_c:
                                         st.error(f"Lỗi: {ex_c}")
 
-                            # Chỉnh sửa tin nhắn giữ chuỗi riêng
-                            with st.expander("Chỉnh sửa tin nhắn", icon=":material/edit:"):
+                            # Chỉnh sửa tin nhắn & Mẫu Hú Hú khẩn cấp riêng
+                            with st.expander("Chỉnh sửa tin nhắn & Hú Hú riêng", icon=":material/edit:"):
                                 with st.form(f"edit_msg_form_{idx}"):
                                     curr_msg = t.get("custom_msg") or ""
-                                    new_msg_val = st.text_input("Nội dung gửi:", value=curr_msg, placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥 (để trống: ngẫu nhiên)")
-                                    btn_save_msg = st.form_submit_button("Lưu tin nhắn", use_container_width=True, type="primary")
+                                    new_msg_val = st.text_input("Tin nhắn chuỗi hàng ngày:", value=curr_msg, placeholder="Ví dụ: Giữ chuỗi nè bạn ơi 🔥 (để trống: ngẫu nhiên)")
+                                    
+                                    curr_spams = t.get("spam_messages") or []
+                                    curr_spams_text = "\n".join(curr_spams) if curr_spams else ""
+                                    new_spams_val = st.text_area(
+                                        "Mẫu Hú Hú khẩn cấp riêng (Mỗi dòng 1 câu):",
+                                        value=curr_spams_text,
+                                        placeholder="Để trống để dùng kho 16 câu mặc định của hệ thống...",
+                                        height=80,
+                                        help="Khi bot kích hoạt Hú Hú ban đêm hoặc khi bạn bấm Hú Hú, bot sẽ gửi các câu này và dừng ngay khi đối phương rep."
+                                    )
+                                    btn_save_msg = st.form_submit_button("Lưu cài đặt", use_container_width=True, type="primary")
                                     if btn_save_msg:
                                         t["custom_msg"] = new_msg_val.strip() if new_msg_val.strip() else None
+                                        lines_sp = [s.strip() for s in new_spams_val.split("\n") if s.strip()]
+                                        t["spam_messages"] = lines_sp if lines_sp else None
                                         bot.save_targets(targets)
                                         st.toast(f"Đã cập nhật tin nhắn cho @{t['username']}!", icon=":material/check:")
                                         st.rerun()
