@@ -11,8 +11,14 @@ Sử dụng:
     python run_bot.py daemon --huhu 23:30   : Canh gác ngầm với mốc Hú Hú tuỳ chọn
 """
 import argparse
+import io
 import sys
 import time
+
+if sys.stdout and hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 from datetime import datetime
 from pathlib import Path
 
@@ -150,7 +156,15 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "send":
+    # Nếu người dùng chỉ gõ 'python run_bot.py' (không truyền tham số nào)
+    # -> Mặc định tự động kích hoạt chế độ canh gác ngầm DAEMON 24/7!
+    if not args.command or args.command == "daemon":
+        if not hasattr(args, "huhu"):
+            args.huhu = None
+        if not hasattr(args, "interval"):
+            args.interval = 30
+        cmd_daemon(args)
+    elif args.command == "send":
         cmd_send(args)
     elif args.command == "check":
         cmd_check(args)
@@ -158,10 +172,8 @@ def main():
         cmd_huhu(args)
     elif args.command == "scan":
         cmd_scan(args)
-    elif args.command == "daemon":
-        cmd_daemon(args)
     else:
-        parser.print_help()
+        cmd_daemon(args)
 
 
 if __name__ == "__main__":
