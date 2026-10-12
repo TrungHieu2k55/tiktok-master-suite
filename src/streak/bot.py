@@ -368,18 +368,19 @@ class TikTokStreakBot:
     def _open_chat_box(self, driver, username: str):
         """
         DIRECT CHAT ROUTING + PROFILE FALLBACK (Từ repo tiktok-streak-bot):
-        1. Ưu tiên: Truy cập trực tiếp https://www.tiktok.com/messages, tìm user trong danh bạ hoặc tìm kiếm.
-        2. Dự phòng: Vào profile @username và click nút 'Nhắn tin' / 'Message'.
-        Giảm 50% thời gian tải trang và không bị ẩn nút chat.
+        1. Ưu tiên: Truy cập trực tiếp https://www.tiktok.com/messages, click item hội thoại khớp username/nickname.
+        2. Dự phòng: Vào profile @username và click nút 'Nhắn tin' / 'Message' (data-e2e='message-button').
         """
         if not driver:
             return None
 
+        clean_user = username.strip().replace("@", "").lower()
         input_selectors = [
-            "[data-e2e='chat-input']",
             "div[contenteditable='true']",
-            "textarea",
+            "div.public-DraftEditor-content",
+            "[data-e2e='chat-input']",
             "div[role='textbox']",
+            "textarea",
         ]
 
         # CHIẾN LƯỢC 1: Direct Chat Routing qua https://www.tiktok.com/messages
@@ -389,20 +390,22 @@ class TikTokStreakBot:
                 driver.get("https://www.tiktok.com/messages")
                 time.sleep(3)
 
-            # Tìm kiếm cuộc hội thoại với username trong danh sách chat bên trái
-            conv_items = driver.find_elements(By.CSS_SELECTOR, "[data-e2e='conversation-item'], div[class*='ConversationItem'], div[class*='ChatList'] li")
-            found_conv = False
+            conv_items = driver.find_elements(
+                By.CSS_SELECTOR,
+                "div[data-e2e='dm-new-conversation-item'], [data-e2e='conversation-item'], div[class*='ConversationItem']"
+            )
             for item in conv_items:
                 try:
-                    if username.lower() in item.text.lower():
+                    txt = item.text.lower()
+                    if clean_user in txt:
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", item)
+                        time.sleep(0.3)
                         item.click()
                         time.sleep(2)
-                        found_conv = True
                         break
                 except Exception:
                     continue
 
-            # Kiểm tra xem khung chat đã mở chưa
             for sel in input_selectors:
                 elems = driver.find_elements(By.CSS_SELECTOR, sel)
                 if elems:
@@ -412,21 +415,27 @@ class TikTokStreakBot:
 
         # CHIẾN LƯỢC 2: Profile Navigation Fallback
         try:
-            profile_url = f"https://www.tiktok.com/@{username}"
+            profile_url = f"https://www.tiktok.com/@{clean_user}"
             driver.get(profile_url)
             time.sleep(3)
 
-            buttons = driver.find_elements(By.TAG_NAME, "button")
-            for btn in buttons:
-                try:
+            # Nút Nhắn tin / Message
+            msg_btns = driver.find_elements(
+                By.CSS_SELECTOR,
+                "button[data-e2e='message-button'], [data-e2e='message-button']"
+            )
+            if msg_btns:
+                driver.execute_script("arguments[0].click();", msg_btns[0])
+                time.sleep(3)
+            else:
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                for btn in buttons:
                     txt = btn.text.strip().lower()
                     aria = (btn.get_attribute("aria-label") or "").lower()
                     if any(k in txt or k in aria for k in ["nhắn tin", "message", "chat"]):
-                        btn.click()
+                        driver.execute_script("arguments[0].click();", btn)
                         time.sleep(3)
                         break
-                except Exception:
-                    continue
 
             for sel in input_selectors:
                 try:
@@ -436,7 +445,7 @@ class TikTokStreakBot:
                 except Exception:
                     continue
         except Exception as e_prof:
-            log.warning("Profile fallback error @%s: %s", username, e_prof)
+            log.warning("Profile fallback error @%s: %s", clean_user, e_prof)
 
         return None
 
@@ -724,12 +733,139 @@ class TikTokStreakBot:
 
         return {"success": False}
 
+    def scan_inbox_conversations(self) -> list[dict]:
+        """
+        QUÉT TỰ ĐỘNG HỘP THƯ TIN NHẮN TIKTOK (HEADLESS CHROME NGẦM 100%):
+        - Chạy hoàn toàn ngầm không mở cửa sổ/tab trên màn hình.
+        - Truy cập https://www.tiktok.com/messages và trích xuất danh sách hội thoại.
+        - Click từng hội thoại để đọc @username (chat-uniqueid), nickname, bong bóng chat đối phương.
+        - Tự động phát hiện các bạn bè đang giữ chuỗi hoặc đang nhắn tin hoạt động.
+        """
+        discovered = []
+        driver = None
+        try:
+            driver = self._get_driver(headless=True)
+        except Exception as eg:
+            log.warning("Không thể khởi động Headless Chrome để quét inbox: %s", eg)
+            return []
+
+        if driver is None:
+            return []
+
+        try:
+            driver.get("https://www.tiktok.com/messages")
+            time.sleep(5)
+
+            conv_elements = driver.find_elements(
+                By.CSS_SELECTOR,
+                "div[data-e2e='dm-new-conversation-item'], div[class*='DivItemWrapper']"
+            )
+            total_items = len(conv_elements)
+            log.info("Headless Chrome quét thấy %d cuộc hội thoại trong hộp thư TikTok", total_items)
+
+            # Quét tối đa 20 cuộc hội thoại gần nhất để vừa nhanh vừa đủ toàn bộ bạn bè hoạt động
+            scan_limit = min(20, total_items)
+            my_account = ""
+
+            for i in range(scan_limit):
+                try:
+                    # Lấy lại danh sách phần tử phòng trường hợp DOM tái render
+                    elems = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "div[data-e2e='dm-new-conversation-item'], div[class*='DivItemWrapper']"
+                    )
+                    if i >= len(elems):
+                        break
+                    it = elems[i]
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", it)
+                    time.sleep(0.2)
+                    it.click()
+                    time.sleep(1.2)
+
+                    uid_el = driver.find_elements(By.CSS_SELECTOR, "[data-e2e='chat-uniqueid']")
+                    uname = uid_el[0].text.replace("@", "").strip() if uid_el else ""
+
+                    nick_el = driver.find_elements(By.CSS_SELECTOR, "[data-e2e='dm-new-chat-nickname']")
+                    nick = nick_el[0].text.strip() if nick_el else uname
+
+                    if not uname:
+                        continue
+
+                    # Kiểm tra bong bóng chat cuối cùng
+                    chat_items = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "div[data-e2e='dm-new-chat-item'], div[class*='DivChatItemWrapper']"
+                    )
+                    last_msg = ""
+                    friend_replied = False
+                    if chat_items:
+                        last_c = chat_items[-1]
+                        last_msg = last_c.text.replace("\n", " ").strip()
+                        links = [
+                            a.get_attribute("href")
+                            for a in last_c.find_elements(By.TAG_NAME, "a")
+                            if a.get_attribute("href")
+                        ]
+                        if links:
+                            sender = links[0].split("@")[-1].strip().lower()
+                            if not my_account and sender != uname.lower():
+                                my_account = sender
+                            if my_account and sender != my_account.lower():
+                                friend_replied = True
+                            elif not my_account and sender == uname.lower():
+                                friend_replied = True
+
+                    # Phát hiện streak từ avatar badge hoặc từ khoá trong nội dung chat
+                    streak_count = 0
+                    try:
+                        badge_el = it.find_elements(
+                            By.CSS_SELECTOR,
+                            "div[class*='DivAvatarBadge'], span[class*='SpanAvatarBadgeText'], [class*='AvatarBadge']"
+                        )
+                        if badge_el:
+                            b_txt = badge_el[0].text.strip()
+                            if b_txt.isdigit() and int(b_txt) > 0:
+                                streak_count = int(b_txt)
+                    except Exception:
+                        pass
+
+                    if streak_count == 0:
+                        all_combined = (it.text + " " + last_msg).lower()
+                        if "chuỗi" in all_combined or "streak" in all_combined or "🔥" in all_combined:
+                            m_st = re.search(r'(?:chuỗi|streak)[^0-9]{0,10}(\d{1,4})', all_combined)
+                            if m_st:
+                                streak_count = int(m_st.group(1))
+
+                    discovered.append({
+                        "username": uname,
+                        "nickname": nick,
+                        "streak_count": streak_count,
+                        "friend_replied": friend_replied,
+                        "last_msg": last_msg,
+                        "source": "headless_inbox",
+                    })
+                    log.info("Phát hiện hội thoại: %s (@%s) - Chuỗi: %d - Rep: %s", nick, uname, streak_count, friend_replied)
+                except Exception as e_item:
+                    log.debug("Lỗi trích xuất hội thoại mục %d: %s", i, e_item)
+                    continue
+        except Exception as e_inbox:
+            log.warning("Lỗi duyệt danh sách hộp thư TikTok: %s", e_inbox)
+        finally:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+        return discovered
+
     def auto_scan_friends_from_api(self) -> dict:
         """
-        TỰ ĐỘNG QUÉT BẠN BÈ VÀ CHECK CHUỖI TỪ TIKTOK API:
-        1. Kiểm tra tình trạng sống/chết (Health Check) của phiên Cookie trước khi quét.
-        2. Xác thực và trích xuất danh sách bạn bè, nickname chính thức, trạng thái bạn bè (Relation: 2), và chuỗi streak qua TikTok API.
-        3. Tự động hợp nhất vào danh sách mục tiêu và đồng bộ Cloud.
+        TỰ ĐỘNG QUÉT BẠN BÈ VÀ CHECK CHUỖI TỪ TIKTOK:
+        1. Kiểm tra tình trạng sống/chết (Health Check) của phiên Cookie.
+        2. Tự động mở Headless Chrome ngầm 100% quét toàn bộ danh sách hội thoại DM trên TikTok Web.
+        3. Tự động nhận diện @username, nickname, chuỗi streak và trạng thái bạn bè rep tin nhắn.
+        4. Tự động hợp nhất (auto-merge) bạn bè mới vào streak_targets và đồng bộ Supabase Cloud.
+        5. Xác thực SSR dự phòng và cập nhật mô tả chuỗi thời gian thực.
         """
         cookie_str = self.load_session_cookie_string()
         if not cookie_str:
@@ -748,6 +884,53 @@ class TikTokStreakBot:
             }
 
         targets = self.load_targets()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        new_added = 0
+        updated_count = 0
+
+        # 1. Thử quét sâu tự động từ Hộp thư Tin nhắn TikTok (Headless Chrome ngầm 100%)
+        inbox_friends = []
+        try:
+            inbox_friends = self.scan_inbox_conversations()
+        except Exception as e_ib:
+            log.warning("Scan inbox conversations error: %s", e_ib)
+        for f in inbox_friends:
+            u = f.get("username", "").strip()
+            if not u:
+                continue
+
+            existing = next((t for t in targets if t.get("username", "").lower() == u.lower()), None)
+            sc = int(f.get("streak_count", 0) or 0)
+            rep = bool(f.get("friend_replied"))
+
+            if existing:
+                # Cập nhật thông tin cho mục tiêu đã có
+                if sc > 0:
+                    existing["streak_count"] = max(existing.get("streak_count", 0), sc)
+                if rep:
+                    existing["friend_replied"] = True
+                if f.get("nickname"):
+                    existing["nickname"] = f["nickname"]
+                existing["last_checked"] = now_str
+                updated_count += 1
+            else:
+                # Tự động thêm bạn bè mới phát hiện được vào danh sách giữ chuỗi!
+                desc = f"Chuỗi {sc} ngày 🔥 • Cần gửi chuỗi trước 23:59! ⚠️" if sc > 0 else f"Bạn bè TikTok ⚡ (@{f.get('nickname', u)})"
+                new_target = {
+                    "username": u,
+                    "nickname": f.get("nickname") or u,
+                    "custom_msg": None,
+                    "streak_count": sc,
+                    "friend_replied": rep,
+                    "last_sent": "Chưa gửi",
+                    "status": desc + " [Đã tự động quét ⚡]",
+                    "last_checked": now_str,
+                    "is_friend": True,
+                }
+                targets.append(new_target)
+                new_added += 1
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer": "https://www.tiktok.com/",
@@ -755,17 +938,13 @@ class TikTokStreakBot:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
 
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        updated_count = 0
-
-        # 1. Thử quét hội thoại từ API endpoint (hỗ trợ mock & endpoint mở)
+        # 2. Thử bổ sung thêm từ các REST API Endpoint mở (dự phòng & mock)
         for ep in [
             "https://www.tiktok.com/api/v1/web/im/conversation/list/?cursor=0&count=50",
             "https://www.tiktok.com/api/im/conversation/list/?cursor=0&count=50",
         ]:
             try:
-                res_api = requests.get(ep, headers=headers, timeout=5)
+                res_api = requests.get(ep, headers=headers, timeout=4)
                 if res_api.status_code == 200:
                     raw_data = res_api.json()
                     conv_list = (
@@ -785,26 +964,28 @@ class TikTokStreakBot:
                                 "friend_replied": details.get("friend_replied", False),
                                 "last_sent": "Chưa gửi",
                                 "status": "Đã quét từ TikTok API ⚡",
+                                "last_checked": now_str,
+                                "is_friend": True,
                             })
-                            updated_count += 1
+                            new_added += 1
             except Exception:
                 pass
 
-        # 2. Quét và xác thực từng mục tiêu qua TikTok Web SSR
+        # 3. Quét & đồng bộ trạng thái quan hệ bạn bè qua TikTok SSR
         for t in targets:
             u = t.get("username", "")
             if not u:
                 continue
             try:
-                resp = requests.get(f"https://www.tiktok.com/@{u}", headers=headers, timeout=6)
+                resp = requests.get(f"https://www.tiktok.com/@{u}", headers=headers, timeout=5)
                 if resp.status_code == 200:
                     m = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', resp.text)
                     if m:
                         d = json.loads(m.group(1))
                         u_info = d.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {}).get("user", {})
                         if u_info:
-                            t["nickname"] = u_info.get("nickname") or u
-                            t["sec_uid"] = u_info.get("secUid") or ""
+                            t["nickname"] = u_info.get("nickname") or t.get("nickname") or u
+                            t["sec_uid"] = u_info.get("secUid") or t.get("sec_uid") or ""
                             rel = u_info.get("relation", 0)
                             t["is_friend"] = (rel == 2)
                             sc = int(t.get("streak_count", 0) or 0)
@@ -819,16 +1000,19 @@ class TikTokStreakBot:
                                     desc = f"Bạn bè TikTok ✅ (@{t['nickname']}) • Sẵn sàng giữ chuỗi"
                                 else:
                                     desc = f"Đã kết nối TikTok API ⚡ (@{t['nickname']})"
+                            if t.get("friend_replied"):
+                                desc += " • Đối phương đã rep! 🎉"
                             t["status"] = desc
                             t["last_checked"] = now_str
                             updated_count += 1
             except Exception as e_check:
-                log.debug("Lỗi check bạn bè @%s: %s", u, e_check)
+                log.debug("Lỗi SSR bạn bè @%s: %s", u, e_check)
 
         self.save_targets(targets)
         return {
             "success": True,
             "total_scanned": len(targets),
+            "new_added": new_added,
             "updated": updated_count,
             "my_username": health.get("username", ""),
             "friends": targets,

@@ -113,8 +113,9 @@ class TestStreakBot(unittest.TestCase):
         mock_resp.json.return_value = fake_json
 
         with patch.object(self.bot, "load_session_cookie_string", return_value="sessionid=fake_token_abc;"):
-            with patch("requests.get", return_value=mock_resp):
-                res = self.bot.auto_scan_friends_from_api()
+            with patch.object(self.bot, "scan_inbox_conversations", return_value=[]):
+                with patch("requests.get", return_value=mock_resp):
+                    res = self.bot.auto_scan_friends_from_api()
                 self.assertTrue(res["success"])
                 self.assertEqual(res["total_scanned"], 2)
                 targets = self.bot.load_targets()
